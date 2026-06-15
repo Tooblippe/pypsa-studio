@@ -1,0 +1,60 @@
+Running scraped cell 1/6
+Running scraped cell 2/6
+Running scraped cell 3/6
+Running scraped cell 4/6
+<power-to-heat-water-tank:cell-4>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['power', 'heat'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following generators have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['wind turbine'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['heat pump'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following stores have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['water tank'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-ujiixhle has 38 rows; 18 cols; 61 nonzeros
+Coefficient ranges:
+  Matrix  [2e-01, 3e+00]
+  Cost    [5e+02, 1e+03]
+  Bound   [0e+00, 0e+00]
+  RHS     [2e+01, 1e+02]
+Presolving model
+9 rows, 8 cols, 21 nonzeros 0s
+Dependent equations search running on 3 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+9 rows, 8 cols, 21 nonzeros 0s
+Presolve reductions: rows 9(-29); columns 8(-10); nonzeros 21(-40) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0    -1.9568483926e-04 Pr: 3(80.202) 0.0s
+          9     2.3500585825e+04 Pr: 0(0) 0.0s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-ujiixhle
+Model status        : Optimal
+Simplex   iterations: 9
+Objective value     :  2.3500585825e+04
+P-D objective error :  7.7400228104e-17
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 18 primals, 38 duals
+Objective: 2.35e+04
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-ext-p-lower, Generator-ext-p-upper, Link-ext-p-lower, Link-ext-p-upper, Store-fix-e-lower, Store-fix-e-upper, Store-energy_balance were not assigned to the network.
+Running scraped cell 5/6
+Running scraped cell 6/6
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/power-to-heat-water-tank/power-to-heat-water-tank.nc contains: buses, links, generators, sub_networks, loads, stores
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/power-to-heat-water-tank/power-to-heat-water-tank.nc

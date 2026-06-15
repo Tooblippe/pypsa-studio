@@ -2,8 +2,8 @@ import asyncio
 import copy
 import io
 import json
+import queue
 import re
-import select
 import shutil
 import subprocess
 import sys
@@ -85,11 +85,13 @@ SNAPSHOT_TABLE_INDEX_NAMES = {
 APP_STATE_DIR = Path(".states")
 APP_SETTINGS_FILE = APP_STATE_DIR / "pypsa_network_builder_settings.json"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PYPSA_EXAMPLES_DIR = PROJECT_ROOT / "test_networks" / "pypsa_examples"
+TEST_NETWORKS_DIR = PROJECT_ROOT / "test_networks"
+SUPPORTED_NETWORK_FILE_SUFFIXES = {".nc", ".h5", ".hdf5", ".zip"}
 JUPYTER_ROOT_DIR = PROJECT_ROOT / ".jupyter"
 JUPYTER_NOTEBOOKS_DIR = JUPYTER_ROOT_DIR / "notebooks"
 JUPYTER_RUNTIME_DIR = JUPYTER_ROOT_DIR / "runtime"
 JUPYTER_START_TIMEOUT_SECONDS = 30
+JUPYTER_EXECUTION_TIMEOUT_SECONDS = 180
 _JUPYTER_PROCESS: subprocess.Popen[str] | None = None
 _JUPYTER_BASE_URL = ""
 
@@ -176,6 +178,22 @@ def create_jupyter_network_notebook(network_path: Path) -> Path:
     return notebook_path
 
 
+def execute_jupyter_network_notebook(notebook_path: Path) -> None:
+    """Run the generated notebook's first cell and persist its output."""
+    import nbformat
+    from nbclient import NotebookClient
+
+    notebook = nbformat.read(notebook_path, as_version=4)
+    client = NotebookClient(
+        notebook,
+        timeout=JUPYTER_EXECUTION_TIMEOUT_SECONDS,
+        kernel_name="python3",
+        resources={"metadata": {"path": str(PROJECT_ROOT)}},
+    )
+    client.execute()
+    nbformat.write(notebook, notebook_path)
+
+
 def _extract_jupyter_url(output_line: str) -> str:
     """Extract the first local Jupyter URL from server output."""
     match = re.search(r"https?://(?:localhost|127\.0\.0\.1):\d+/\S*", output_line)
@@ -214,18 +232,29 @@ def _ensure_jupyter_lab_server() -> str:
     )
 
     output: list[str] = []
+    output_queue: queue.Queue[str] = queue.Queue()
+
+    def read_output() -> None:
+        if _JUPYTER_PROCESS.stdout is None:
+            return
+        try:
+            for line in _JUPYTER_PROCESS.stdout:
+                output_queue.put(line)
+        except Exception:
+            return
+
+    threading.Thread(target=read_output, daemon=True).start()
     deadline = time.monotonic() + JUPYTER_START_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if _JUPYTER_PROCESS.stdout is None:
-            break
-        readable, _, _ = select.select([_JUPYTER_PROCESS.stdout], [], [], 0.2)
-        line = _JUPYTER_PROCESS.stdout.readline() if readable else ""
+        try:
+            line = output_queue.get(timeout=0.2)
+        except queue.Empty:
+            line = ""
         if line:
             output.append(line)
             url = _extract_jupyter_url(line)
             if url:
                 _JUPYTER_BASE_URL = url
-                _start_jupyter_output_drain(_JUPYTER_PROCESS)
                 return _JUPYTER_BASE_URL
             continue
         if _JUPYTER_PROCESS.poll() is not None:
@@ -272,23 +301,50 @@ def jupyter_lab_notebook_url(notebook_path: Path) -> str:
     )
 
 
+def _pretty_example_label(label: str) -> str:
+    """Format example labels for display in the network menu."""
+    parts = []
+    for part in Path(label).as_posix().split("/"):
+        stem, dot, suffix = part.rpartition(".")
+        if dot:
+            part = f"{stem.replace('_', ' ').title()}{dot}{suffix}"
+        else:
+            part = part.replace("_", " ").title()
+        parts.append(part)
+    return "/".join(parts)
+
+
 def discover_pypsa_example_networks() -> list[ExampleNetworkGroup]:
-    """Return bundled PyPSA example .nc files grouped by top-level directory."""
-    if not PYPSA_EXAMPLES_DIR.exists():
+    """Return test networks grouped by top-level directory."""
+    if not TEST_NETWORKS_DIR.exists():
         return []
     groups: list[ExampleNetworkGroup] = []
-    for directory in sorted(PYPSA_EXAMPLES_DIR.iterdir()):
+    for directory in sorted(TEST_NETWORKS_DIR.iterdir()):
         if not directory.is_dir():
             continue
+        network_paths = [
+            path
+            for path in sorted([directory, *directory.rglob("*")])
+            if (
+                path.is_file()
+                and path.suffix.lower() in SUPPORTED_NETWORK_FILE_SUFFIXES
+            )
+            or (
+                path.is_dir()
+                and ((path / "buses.csv").exists() or (path / "network.csv").exists())
+            )
+        ]
         networks = [
             {
-                "label": path.relative_to(directory).as_posix(),
+                "label": _pretty_example_label(path.relative_to(directory).as_posix()),
                 "path": str(path),
             }
-            for path in sorted(directory.rglob("*.nc"))
+            for path in network_paths
         ]
         if networks:
-            groups.append({"label": directory.name, "networks": networks})
+            groups.append(
+                {"label": _pretty_example_label(directory.name), "networks": networks}
+            )
     return groups
 
 
@@ -408,6 +464,7 @@ class DiagramAttr(TypedDict):
     input_type: str
     is_time_series: bool
     has_time_series_table: bool
+    has_time_series_value: bool
     is_bus_reference: bool
     options: list[str]
 
@@ -501,6 +558,13 @@ class OtherCsvTable(TypedDict):
     dirty: bool
 
 
+class NetworkLoadArtifacts(TypedDict):
+    network: pypsa.Network
+    loaded_network: PypsaLoadedNetwork
+    other_csv_tables: dict[str, OtherCsvTable]
+    time_series_tables: dict[str, OtherCsvTable]
+
+
 class NetworkDataColumn(TypedDict):
     component: str
     name: str
@@ -520,6 +584,7 @@ class NetworkDataCell(TypedDict):
     type: str
     input_type: str
     is_time_series: bool
+    has_time_series_value: bool
     is_bus_reference: bool
     options: list[str]
 
@@ -774,6 +839,23 @@ def default_other_table_columns(component_name: str) -> list[str]:
     ]
 
 
+def table_cell_value(value: object) -> str:
+    """Convert a pandas table value into an editable string."""
+    try:
+        if pd.isna(value):
+            return ""
+    except TypeError, ValueError:
+        pass
+    return str(value)
+
+
+def table_index_value(value: object) -> str:
+    """Convert a pandas index value, including MultiIndex tuples, into a row id."""
+    if isinstance(value, tuple):
+        return ", ".join(table_cell_value(item) for item in value)
+    return table_cell_value(value)
+
+
 def dataframe_to_other_csv_table(
     component_name: str,
     data_frame: pd.DataFrame,
@@ -785,12 +867,12 @@ def dataframe_to_other_csv_table(
         rows.append(
             {
                 "row_index": row_index,
-                "id": "" if pd.isna(index_value) else str(index_value),
+                "id": table_index_value(index_value),
                 "cells": [
                     {
                         "row_index": row_index,
                         "column": column,
-                        "value": "" if pd.isna(row[column]) else str(row[column]),
+                        "value": table_cell_value(row[column]),
                     }
                     for column in columns
                 ],
@@ -879,6 +961,62 @@ def load_time_series_csv_tables(csv_folder: Path) -> dict[str, OtherCsvTable]:
     return tables
 
 
+def load_time_series_network_tables(
+    network: pypsa.Network,
+) -> dict[str, OtherCsvTable]:
+    """Extract editable time-series tables from a loaded PyPSA network object."""
+    tables: dict[str, OtherCsvTable] = {}
+    network_components = getattr(network, "components", {})
+    network_component_names = set(network_components.keys())
+    for component_name, component in NETWORK_MODEL.all_components.items():
+        if component_name not in network_component_names:
+            continue
+        pypsa_component = network_components[component_name]
+        dynamic_tables = getattr(pypsa_component, "dynamic", {})
+        if not hasattr(dynamic_tables, "items"):
+            continue
+        for attr_name, data_frame in dynamic_tables.items():
+            attr_name = str(attr_name)
+            if attr_name not in component.attrs:
+                continue
+            if isinstance(data_frame, pd.Series):
+                data_frame = data_frame.to_frame()
+            if not isinstance(data_frame, pd.DataFrame) or data_frame.empty:
+                continue
+            table = dataframe_to_time_series_table(
+                component_name,
+                attr_name,
+                data_frame.copy().fillna(""),
+            )
+            tables[f"{component_name}:{attr_name}"] = table
+    return tables
+
+
+def load_network_artifacts(network_path: str | Path) -> NetworkLoadArtifacts:
+    """Load a PyPSA network and all editable side tables used by the UI."""
+    path = Path(network_path).expanduser()
+    if path.is_dir():
+        network, loaded_network = load_csv_folder_network(path)
+        time_series_tables = load_time_series_csv_tables(path)
+        if not time_series_tables:
+            time_series_tables = load_time_series_network_tables(network)
+        return {
+            "network": network,
+            "loaded_network": loaded_network,
+            "other_csv_tables": load_other_csv_tables(path),
+            "time_series_tables": time_series_tables,
+        }
+
+    network = load_pypsa_network(path)
+    loaded_network = pypsa_network_to_loaded_network(network, source=str(path))
+    return {
+        "network": network,
+        "loaded_network": loaded_network,
+        "other_csv_tables": {},
+        "time_series_tables": load_time_series_network_tables(network),
+    }
+
+
 def load_layout_positions(
     csv_folder: Path,
 ) -> dict[tuple[str, str], dict[str, float]]:
@@ -959,6 +1097,7 @@ def diagram_attr_rows(
                 "is_time_series": bool(attr.varying)
                 or "series" in str(attr.pypsa_type).lower(),
                 "has_time_series_table": False,
+                "has_time_series_value": False,
                 "is_bus_reference": is_bus_reference_attr(attr_name),
                 "options": options,
             }
@@ -1175,6 +1314,11 @@ def attrs_from_network_row(
 
 def component_id_prefix(component_name: str) -> str:
     """Return the default node-id prefix for a PyPSA component list name."""
+    singular_prefixes = {
+        "processes": "process",
+    }
+    if component_name in singular_prefixes:
+        return singular_prefixes[component_name]
     if component_name == "buses":
         return "bus"
     return component_name[:-1] if component_name.endswith("s") else component_name
@@ -1349,10 +1493,18 @@ def palette_item(component: rx.Var[ComponentRow]) -> rx.Component:
                 "var(--accent-3)",
                 "transparent",
             ),
-            _hover={"background": "var(--accent-3)"},
+            transition="background-color 140ms ease",
+            _hover={
+                "background": rx.cond(
+                    State.armed_component == component["component"],
+                    "var(--accent-3)",
+                    "color-mix(in srgb, var(--yellow-6) 78%, transparent)",
+                ),
+            },
             display="flex",
             align_items="center",
             justify_content="center",
+            class_name="sidebar-icon",
         ),
         content=component["pypsa_name"],
     )
@@ -1380,10 +1532,14 @@ def inert_palette_item(component: rx.Var[ComponentRow]) -> rx.Component:
             border_radius="2px",
             cursor="pointer",
             background="transparent",
-            _hover={"background": "var(--gray-3)"},
+            transition="background-color 140ms ease",
+            _hover={
+                "background": "color-mix(in srgb, var(--yellow-6) 78%, transparent)",
+            },
             display="flex",
             align_items="center",
             justify_content="center",
+            class_name="sidebar-icon",
         ),
         content=component["pypsa_name"],
     )
@@ -1418,10 +1574,18 @@ def branch_palette_item(component: rx.Var[ComponentRow]) -> rx.Component:
                 "var(--accent-3)",
                 "transparent",
             ),
-            _hover={"background": "var(--accent-3)"},
+            transition="background-color 140ms ease",
+            _hover={
+                "background": rx.cond(
+                    State.armed_branch_component == component["component"],
+                    "var(--accent-3)",
+                    "color-mix(in srgb, var(--yellow-6) 78%, transparent)",
+                ),
+            },
             display="flex",
             align_items="center",
             justify_content="center",
+            class_name="sidebar-icon",
         ),
         content=component["pypsa_name"],
     )
@@ -1593,6 +1757,11 @@ def reference_attr_input(attr: rx.Var[DiagramAttr]) -> rx.Component:
                 aria_label="Add reference value",
                 title="Add reference value",
                 on_click=lambda: State.commit_selected_attr_reference(attr["name"]),
+                class_name="sidebar-icon",
+                transition="background-color 140ms ease",
+                _hover={
+                    "background": "color-mix(in srgb, var(--yellow-6) 78%, transparent)"
+                },
                 variant="soft",
                 size="2",
             ),
@@ -1620,11 +1789,33 @@ def editor_attr(attr: rx.Var[DiagramAttr]) -> rx.Component:
             rx.cond(
                 attr["has_time_series_table"],
                 rx.button(
-                    rx.icon("table-2", size=14),
-                    aria_label="Edit time series",
-                    title="Edit time series",
+                    rx.cond(
+                        attr["has_time_series_value"],
+                        rx.icon("table-2", size=14),
+                        rx.text("+t", size="1", weight="bold"),
+                    ),
+                    aria_label=rx.cond(
+                        attr["has_time_series_value"],
+                        "Edit time series",
+                        "Add time series",
+                    ),
+                    title=rx.cond(
+                        attr["has_time_series_value"],
+                        "Edit time series",
+                        "Add time series",
+                    ),
                     on_click=lambda: State.open_selected_time_series_attr(attr["name"]),
+                    class_name="sidebar-icon",
+                    transition="background-color 140ms ease",
+                    _hover={
+                        "background": "color-mix(in srgb, var(--yellow-6) 78%, transparent)"
+                    },
                     variant="soft",
+                    color_scheme=rx.cond(
+                        attr["has_time_series_value"],
+                        "green",
+                        "blue",
+                    ),
                     size="1",
                 ),
                 rx.fragment(),
@@ -1682,6 +1873,11 @@ def right_sidebar() -> rx.Component:
                     title="Delete selected component",
                     on_click=State.delete_selected_node,
                     color_scheme="red",
+                    class_name="sidebar-icon",
+                    transition="background-color 140ms ease",
+                    _hover={
+                        "background": "color-mix(in srgb, var(--yellow-6) 78%, transparent)"
+                    },
                     variant="soft",
                     size="2",
                 ),
@@ -1959,6 +2155,7 @@ def builder_tab() -> rx.Component:
                         nodes=State.diagram_nodes,
                         edges=State.diagram_edges,
                         route_version=State.route_version,
+                        fit_view_version=State.fit_view_version,
                         armed_component=State.armed_component,
                         armed_branch_component=State.armed_branch_component,
                         branch_bus0_node_id=State.branch_bus0_node_id,
@@ -2081,6 +2278,45 @@ def network_name_dialog() -> rx.Component:
     )
 
 
+def unsaved_changes_dialog() -> rx.Component:
+    """Render a confirmation dialog for actions with unsaved network changes."""
+    return rx.alert_dialog.root(
+        rx.alert_dialog.content(
+            rx.alert_dialog.title("Unsaved changes"),
+            rx.alert_dialog.description(
+                "You have unsaved changes. Save first, ignore, or exit this action.",
+                size="2",
+                color_scheme="gray",
+            ),
+            rx.flex(
+                rx.alert_dialog.cancel(
+                    rx.button("Exit", variant="soft", color_scheme="gray")
+                ),
+                rx.alert_dialog.action(
+                    rx.button(
+                        "Ignore and open",
+                        on_click=State.ignore_unsaved_network_changes_and_open,
+                        color_scheme="orange",
+                    )
+                ),
+                rx.alert_dialog.action(
+                    rx.button(
+                        "Save and open",
+                        on_click=State.save_unsaved_network_changes_and_open,
+                        color_scheme="blue",
+                    )
+                ),
+                spacing="3",
+                justify="end",
+                width="100%",
+            ),
+            max_width="460px",
+        ),
+        open=State.is_unsaved_changes_dialog_open,
+        on_open_change=State.set_unsaved_changes_dialog_open,
+    )
+
+
 def undo_redo_buttons() -> rx.Component:
     """Render canvas undo and redo controls."""
     return rx.hstack(
@@ -2152,9 +2388,19 @@ def export_network_dialog() -> rx.Component:
     return rx.dialog.root(
         rx.dialog.content(
             rx.vstack(
-                rx.dialog.title("Export network"),
+                rx.dialog.title(
+                    rx.cond(
+                        State.is_export_dialog_for_save & (State.save_network_folder == ""),
+                        "Save network",
+                        "Export network",
+                    )
+                ),
                 rx.dialog.description(
-                    "Enter a destination folder path on the machine running this app.",
+                    rx.cond(
+                        State.is_export_dialog_for_save & (State.save_network_folder == ""),
+                        "Choose a folder path on the machine running this app to save the loaded network.",
+                        "Enter a destination folder path on the machine running this app.",
+                    ),
                     size="2",
                     color_scheme="gray",
                 ),
@@ -2168,10 +2414,20 @@ def export_network_dialog() -> rx.Component:
                     rx.dialog.close(rx.button("Cancel", variant="soft")),
                     rx.button(
                         rx.cond(
-                            State.operation_kind == "export", "Exporting...", "Export"
+                            State.is_export_dialog_for_save,
+                            rx.cond(
+                                State.operation_kind == "save", "Saving...", "Save"
+                            ),
+                            rx.cond(
+                                State.operation_kind == "export", "Exporting...", "Export"
+                            ),
                         ),
-                        on_click=State.export_canvas_network,
-                        disabled=State.operation_kind == "export",
+                        on_click=State.confirm_export_dialog,
+                        disabled=rx.cond(
+                            State.operation_kind == "export",
+                            True,
+                            State.operation_kind == "save",
+                        ),
                     ),
                     spacing="2",
                     justify="end",
@@ -2322,9 +2578,21 @@ def network_data_cell(cell: rx.Var[NetworkDataCell]) -> rx.Component:
             rx.cond(
                 cell["is_time_series"],
                 rx.button(
-                    rx.icon("table-2", size=14),
-                    aria_label="Edit time series",
-                    title="Edit time series",
+                    rx.cond(
+                        cell["has_time_series_value"],
+                        rx.icon("table-2", size=14),
+                        rx.text("+t", size="1", weight="bold"),
+                    ),
+                    aria_label=rx.cond(
+                        cell["has_time_series_value"],
+                        "Edit time series",
+                        "Add time series",
+                    ),
+                    title=rx.cond(
+                        cell["has_time_series_value"],
+                        "Edit time series",
+                        "Add time series",
+                    ),
                     on_click=lambda: State.open_network_data_time_series_attr(
                         cell["component"],
                         cell["row_id"],
@@ -2332,6 +2600,11 @@ def network_data_cell(cell: rx.Var[NetworkDataCell]) -> rx.Component:
                         cell["attr_name"],
                     ),
                     variant="soft",
+                    color_scheme=rx.cond(
+                        cell["has_time_series_value"],
+                        "green",
+                        "blue",
+                    ),
                     size="1",
                     flex_shrink="0",
                 ),
@@ -2640,7 +2913,8 @@ def demo_styles() -> rx.Component:
           .react-flow-shell {
             position: relative;
             width: 100%;
-            height: 680px;
+            height: 100%;
+            min-height: 0;
             background:
               linear-gradient(var(--gray-4) 1px, transparent 1px),
               linear-gradient(90deg, var(--gray-4) 1px, transparent 1px),
@@ -2683,6 +2957,26 @@ def demo_styles() -> rx.Component:
           }
           .schematic-node[data-branch-armed="true"] {
             cursor: crosshair;
+          }
+          .schematic-node[data-connection-hover="true"] {
+            border-color: transparent;
+            background: transparent;
+            box-shadow: none;
+            transform: none;
+          }
+          .schematic-node[data-connection-hover="true"] .schematic-bus-symbol {
+            background: #2563eb;
+            box-shadow: 0 0 0 4px color-mix(in srgb, #60a5fa 72%, transparent);
+          }
+          .react-flow-shell[data-branch-armed="true"] .schematic-node[data-is-bus="true"]:hover {
+            border-color: transparent;
+            background: transparent;
+            box-shadow: none;
+            transform: none;
+          }
+          .react-flow-shell[data-branch-armed="true"] .schematic-node[data-is-bus="true"]:hover .schematic-bus-symbol {
+            background: #2563eb;
+            box-shadow: 0 0 0 4px color-mix(in srgb, #60a5fa 72%, transparent);
           }
           .schematic-node[data-branch-start="true"],
           .schematic-node[data-branch-start="true"]:hover {
@@ -2935,7 +3229,7 @@ def pypsa_example_menu_item(example: rx.Var[ExampleNetworkOption]) -> rx.Compone
     """Render one PyPSA example network submenu item."""
     return rx.menu.item(
         example["label"],
-        on_select=lambda: State.load_pypsa_example_network(example["path"]),
+        on_select=lambda: State.request_load_pypsa_example_network(example["path"]),
     )
 
 
@@ -2972,7 +3266,7 @@ def network_menu() -> rx.Component:
         rx.menu.content(
             rx.menu.item(
                 "New",
-                on_select=State.new_network,
+                on_select=State.request_new_network,
             ),
             rx.menu.item(
                 "Rename",
@@ -2983,26 +3277,29 @@ def network_menu() -> rx.Component:
             rx.menu.item(
                 "Load",
                 shortcut="Ctrl+O",
-                on_select=State.choose_network_directory_and_load,
+                on_select=State.request_load_network_directory_to_canvas,
                 disabled=State.is_loading_network,
             ),
             rx.menu.item(
                 "Save",
                 shortcut="Ctrl+S",
                 on_select=State.save_canvas_network_to_loaded_folder,
-                disabled=rx.cond(
-                    State.save_network_folder != "",
-                    State.operation_kind == "save",
-                    True,
-                ),
+                disabled=State.operation_kind == "save",
             ),
+            rx.menu.item(
+                "Save as",
+                shortcut="Ctrl+E",
+                on_select=State.choose_export_folder,
+                disabled=State.operation_kind == "export",
+            ),
+            rx.menu.separator(),
             rx.menu.item(
                 "Open in Jupyter",
                 on_select=State.open_network_in_jupyter,
                 disabled=State.operation_kind != "",
             ),
             rx.menu.sub(
-                rx.menu.sub_trigger("Pypsa Network Examples"),
+                rx.menu.sub_trigger("Examples"),
                 rx.menu.sub_content(
                     rx.foreach(
                         State.pypsa_example_networks,
@@ -3012,13 +3309,6 @@ def network_menu() -> rx.Component:
                     size="2",
                     variant="soft",
                 ),
-            ),
-            rx.menu.separator(),
-            rx.menu.item(
-                "Export",
-                shortcut="Ctrl+E",
-                on_select=State.choose_export_folder,
-                disabled=State.operation_kind == "export",
             ),
             align="start",
             size="2",
@@ -3139,28 +3429,47 @@ def view_menu() -> rx.Component:
 
 def data_menu() -> rx.Component:
     """Render the top-level data menu."""
-    return rx.menu.root(
-        rx.menu.trigger(
-            rx.button(
-                "Data",
-                rx.icon("chevron-down", size=14),
-                aria_label="Data menu",
-                variant="ghost",
-                size="2",
-                title="Data menu (Alt+D)",
-                custom_attrs={"id": "data-menu-trigger"},
-            )
-        ),
-        rx.menu.content(
-            rx.menu.item(
-                "Network Data",
-                shortcut="Ctrl+Shift+D",
-                on_select=State.open_network_data_dialog,
+    return rx.hstack(
+        rx.menu.root(
+            rx.menu.trigger(
+                rx.button(
+                    "Data",
+                    rx.icon("chevron-down", size=14),
+                    aria_label="Data menu",
+                    variant="ghost",
+                    size="2",
+                    title="Data menu (Alt+D)",
+                    custom_attrs={"id": "data-menu-trigger"},
+                )
             ),
-            align="start",
-            size="2",
-            variant="soft",
+            rx.menu.content(
+                rx.menu.item(
+                    "Network Data",
+                    shortcut="Ctrl+Shift+D",
+                    on_select=State.open_network_data_dialog,
+                ),
+                align="start",
+                size="2",
+                variant="soft",
+            ),
         ),
+        rx.tooltip(
+            rx.button(
+                rx.icon("recycle", size=18, color="#d8a200"),
+                aria_label="Auto route",
+                title="Auto route",
+                on_click=State.auto_route_canvas,
+                variant="ghost",
+                size="1",
+                padding="0px 6px",
+                border_radius="9999px",
+                margin_left="6px",
+            ),
+            content="Auto Route - Ctrl+R",
+            side="bottom",
+        ),
+        spacing="2",
+        align="center",
     )
 
 
@@ -3175,7 +3484,7 @@ def shortcut_actions() -> rx.Component:
         rx.button(
             "Load",
             id="network-load-shortcut",
-            on_click=State.choose_network_directory_and_load,
+            on_click=State.request_load_network_directory_to_canvas,
             disabled=State.is_loading_network,
         ),
         rx.button(
@@ -3264,14 +3573,35 @@ def menu_bar() -> rx.Component:
 def footer_bar() -> rx.Component:
     """Render the compact footer with the color mode selector."""
     return rx.hstack(
+        rx.tooltip(
+            rx.box(
+                width="10px",
+                height="10px",
+                border_radius="9999px",
+                bg=rx.cond(
+                    State.has_unsaved_network_changes,
+                    "orange",
+                    "green",
+                ),
+            ),
+            content=rx.cond(
+                State.has_unsaved_network_changes,
+                "unsaved changes",
+                "changes saved",
+            ),
+        ),
         rx.text(
             rx.cond(
                 State.is_operation_dialog_open,
                 State.operation_status,
-                "Ready",
+                rx.cond(
+                    State.has_unsaved_network_changes,
+                    "unsaved changes",
+                    "changes saved",
+                ),
             ),
             size="2",
-            color_scheme="gray",
+            color="#f8fafc",
         ),
         rx.spacer(),
         rx.color_mode.button(size="2", variant="soft"),
@@ -3376,10 +3706,14 @@ def other_component_dialog() -> rx.Component:
                             padding="0",
                             width="fit-content",
                         ),
-                        rx.button(
-                            "Add row",
-                            on_click=State.add_other_table_row,
-                            variant="soft",
+                        rx.cond(
+                            State.time_series_dialog_key == "",
+                            rx.button(
+                                "Add row",
+                                on_click=State.add_other_table_row,
+                                variant="soft",
+                            ),
+                            rx.fragment(),
                         ),
                         spacing="2",
                     ),
@@ -3459,6 +3793,25 @@ def other_csv_row(row: rx.Var[OtherTableRow]) -> rx.Component:
     )
 
 
+def time_series_csv_row(row: rx.Var[OtherTableRow]) -> rx.Component:
+    """Render one editable time-series table row without structural controls."""
+    return rx.table.row(
+        rx.table.row_header_cell(
+            rx.text(row["id"], size="2", white_space="nowrap"),
+            min_width="180px",
+        ),
+        rx.foreach(row["cells"], time_series_csv_cell),
+    )
+
+
+def time_series_csv_cell(cell: rx.Var[OtherTableCell]) -> rx.Component:
+    """Render one read-only time-series table value."""
+    return rx.table.cell(
+        rx.text(cell["value"], size="2", white_space="nowrap"),
+        min_width="150px",
+    )
+
+
 def other_csv_table_editor() -> rx.Component:
     """Render an editable supplemental CSV table."""
     return rx.box(
@@ -3474,10 +3827,20 @@ def other_csv_table_editor() -> rx.Component:
                         State.other_table_dialog_columns,
                         other_csv_header_cell,
                     ),
-                    rx.table.column_header_cell(""),
+                    rx.cond(
+                        State.time_series_dialog_key == "",
+                        rx.table.column_header_cell(""),
+                        rx.fragment(),
+                    ),
                 ),
             ),
-            rx.table.body(rx.foreach(State.other_table_dialog_rows, other_csv_row)),
+            rx.table.body(
+                rx.cond(
+                    State.time_series_dialog_key == "",
+                    rx.foreach(State.other_table_dialog_rows, other_csv_row),
+                    rx.foreach(State.other_table_dialog_rows, time_series_csv_row),
+                )
+            ),
             variant="surface",
             size="2",
             width="100%",
@@ -3691,6 +4054,7 @@ class State(rx.State):
     show_left_sidebar: bool = True
     show_right_sidebar: bool = True
     route_version: int = 0
+    fit_view_version: int = 0
     selected_node_id: str = ""
     selected_component_name: str = ""
     selected_attr_rows: list[DiagramAttr] = []
@@ -3717,7 +4081,11 @@ class State(rx.State):
     export_error: str = ""
     is_network_name_dialog_open: bool = False
     is_load_dialog_open: bool = False
+    is_unsaved_changes_dialog_open: bool = False
+    unsaved_network_action: str = ""
+    unsaved_network_action_payload: str = ""
     is_export_dialog_open: bool = False
+    is_export_dialog_for_save: bool = False
     is_operation_dialog_open: bool = False
     operation_title: str = ""
     operation_status: str = ""
@@ -3775,6 +4143,11 @@ class State(rx.State):
                 *self.time_series_tables.values(),
             ]
         )
+
+    @rx.var
+    def has_unsaved_network_changes(self) -> bool:
+        """Expose network unsaved-state to the UI."""
+        return self._has_unsaved_network_changes()
 
     def open_other_component_dialog(self, title: str) -> None:
         """Open the placeholder dialog for an unsupported component."""
@@ -3872,6 +4245,7 @@ class State(rx.State):
                     }
                 )
             self.other_table_dialog_rows = rows
+            self._refresh_selected_attr_rows()
             return
         if not self.other_table_dialog_component:
             return
@@ -3916,6 +4290,22 @@ class State(rx.State):
                 table["columns"].append(column["name"])
         return table
 
+    def _has_time_series_value(
+        self,
+        component_name: str,
+        attr_name: str,
+        pypsa_name: str,
+    ) -> bool:
+        """Return whether a component row has non-empty time-series values."""
+        table = self.time_series_tables.get(f"{component_name}:{attr_name}")
+        if table is None or pypsa_name not in table["columns"]:
+            return False
+        for row in table["rows"]:
+            for cell in row["cells"]:
+                if cell["column"] == pypsa_name and str(cell["value"]).strip() != "":
+                    return True
+        return False
+
     def _network_data_canvas_rows(self, component_name: str) -> list[NetworkDataRow]:
         """Build Network Data rows from diagram nodes."""
         columns = network_data_columns(component_name)
@@ -3940,6 +4330,11 @@ class State(rx.State):
                         "type": column["type"],
                         "input_type": column["input_type"],
                         "is_time_series": column["is_time_series"],
+                        "has_time_series_value": self._has_time_series_value(
+                            component_name,
+                            attr_name,
+                            row_name,
+                        ),
                         "is_bus_reference": column["is_bus_reference"],
                         "options": column["options"],
                     }
@@ -3977,6 +4372,11 @@ class State(rx.State):
                         "type": column["type"],
                         "input_type": column["input_type"],
                         "is_time_series": column["is_time_series"],
+                        "has_time_series_value": self._has_time_series_value(
+                            component_name,
+                            attr_name,
+                            str(row["id"]),
+                        ),
                         "is_bus_reference": column["is_bus_reference"],
                         "options": column["options"],
                     }
@@ -4260,21 +4660,36 @@ class State(rx.State):
         self._sync_other_table_dialog()
         self.is_other_component_dialog_open = True
 
-    def open_network_data_time_series_attr(
+    async def open_network_data_time_series_attr(
         self,
         component_name: str,
         row_id: str,
         row_index: int,
         attr_name: str,
-    ) -> None:
+    ):
         """Open a time-series table from a Network Data cell."""
+        self.is_network_data_dialog_open = False
+        self.is_operation_dialog_open = True
+        self.operation_title = "Loading time series"
+        self.operation_status = f"Opening {component_name}.{attr_name}..."
+        self.operation_kind = "load"
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        yield
+
         pypsa_name = self._row_name_for_network_data(
             str(component_name),
             str(row_id),
             int(row_index),
         )
-        self.is_network_data_dialog_open = False
         self._open_time_series_table(str(component_name), str(attr_name), pypsa_name)
+        self.is_operation_dialog_open = False
+        self.operation_title = ""
+        self.operation_status = ""
+        self.operation_kind = ""
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        yield
 
     def _canvas_snapshot(self) -> CanvasSnapshot:
         """Return a deep snapshot of undoable canvas state."""
@@ -4543,6 +4958,27 @@ class State(rx.State):
                 }
         return extra_tables
 
+    def _apply_network_load_artifacts(
+        self,
+        artifacts: NetworkLoadArtifacts,
+        *,
+        loaded_source: str = "",
+        save_network_folder: str = "",
+    ) -> tuple[pypsa.Network, PypsaLoadedNetwork]:
+        """Apply centrally loaded network data and editable side tables to state."""
+        network = artifacts["network"]
+        loaded_network = artifacts["loaded_network"]
+        self.sections = model_sections(NETWORK_MODEL, loaded_network)
+        self.loaded_source = loaded_source or loaded_network.source or ""
+        self.save_network_folder = save_network_folder
+        self.other_csv_tables = artifacts["other_csv_tables"]
+        self.time_series_tables = artifacts["time_series_tables"]
+        return network, loaded_network
+
+    def _request_canvas_fit_view(self) -> None:
+        """Request a fit-to-view action on the next canvas render."""
+        self.fit_view_version += 1
+
     async def load_network(self, files: list[rx.UploadFile]):
         """Load a PyPSA file for catalog default-value inspection."""
         if not files:
@@ -4555,11 +4991,11 @@ class State(rx.State):
         try:
             data = await upload.read()
             saved_path = save_upload(file_name, data, rx.get_upload_dir())
-            loaded_network = load_pypsa_loaded_network(saved_path)
-            self.sections = model_sections(NETWORK_MODEL, loaded_network)
-            self.loaded_source = loaded_network.source or file_name
-            self.other_csv_tables = {}
-            self.time_series_tables = {}
+            artifacts = load_network_artifacts(saved_path)
+            self._apply_network_load_artifacts(
+                artifacts,
+                loaded_source=artifacts["loaded_network"].source or file_name,
+            )
             self._mark_network_saved()
             self.load_message = f"Loaded {file_name}."
             self.load_error = ""
@@ -4579,11 +5015,11 @@ class State(rx.State):
                 payloads.append((file_name, await upload.read()))
 
             csv_folder = save_uploads_as_csv_folder(payloads, rx.get_upload_dir())
-            loaded_network = load_pypsa_loaded_network(csv_folder)
-            self.sections = model_sections(NETWORK_MODEL, loaded_network)
-            self.loaded_source = loaded_network.source or str(csv_folder)
-            self.other_csv_tables = load_other_csv_tables(Path(csv_folder))
-            self.time_series_tables = load_time_series_csv_tables(Path(csv_folder))
+            artifacts = load_network_artifacts(csv_folder)
+            self._apply_network_load_artifacts(
+                artifacts,
+                loaded_source=artifacts["loaded_network"].source or str(csv_folder),
+            )
             self._mark_network_saved()
             self.load_message = f"Loaded CSV directory with {len(files)} files."
             self.load_error = ""
@@ -4603,13 +5039,11 @@ class State(rx.State):
         try:
             data = await upload.read()
             saved_path = save_upload(file_name, data, rx.get_upload_dir())
-            network = load_pypsa_network(saved_path)
-            loaded_network = load_pypsa_loaded_network(saved_path)
-            self.sections = model_sections(NETWORK_MODEL, loaded_network)
-            self.loaded_source = str(saved_path)
-            self.save_network_folder = ""
-            self.other_csv_tables = {}
-            self.time_series_tables = {}
+            artifacts = load_network_artifacts(saved_path)
+            network, _loaded_network = self._apply_network_load_artifacts(
+                artifacts,
+                loaded_source=str(saved_path),
+            )
             self.network_name = str(network.name or file_name)
             print(network)
             self._populate_canvas_from_network(network, trigger_route=False)
@@ -4639,18 +5073,20 @@ class State(rx.State):
             self.export_error = ""
             yield
 
-            network, loaded_network = await asyncio.to_thread(load_network_file, path)
-            self.sections = model_sections(NETWORK_MODEL, loaded_network)
-            self.loaded_source = str(path)
-            self.save_network_folder = ""
-            self.other_csv_tables = {}
-            self.time_series_tables = {}
+            artifacts = await asyncio.to_thread(load_network_artifacts, path)
+            save_network_folder = str(path) if path.is_dir() else ""
+            network, _loaded_network = self._apply_network_load_artifacts(
+                artifacts,
+                loaded_source=str(path),
+                save_network_folder=save_network_folder,
+            )
             self.network_name = str(network.name or path.stem or "Unnamed")
             self.operation_status = "Building canvas object..."
             self.network_load_status = self.operation_status
             yield
 
             self._populate_canvas_from_network(network, trigger_route=False)
+            self._request_canvas_fit_view()
             self._mark_network_saved()
             self.load_message = f"Loaded {file_name} onto canvas."
             self.export_message = f"Loaded {file_name} onto canvas."
@@ -4762,10 +5198,7 @@ class State(rx.State):
         yield
 
         try:
-            network, loaded_network = await asyncio.to_thread(
-                load_csv_folder_network,
-                csv_folder,
-            )
+            artifacts = await asyncio.to_thread(load_network_artifacts, csv_folder)
         except Exception as exc:
             message = f"Could not import PyPSA CSV folder {csv_folder}: {exc}"
             self.load_error = message
@@ -4780,11 +5213,11 @@ class State(rx.State):
             yield
             return
 
-        self.sections = model_sections(NETWORK_MODEL, loaded_network)
-        self.loaded_source = str(csv_folder)
-        self.save_network_folder = str(csv_folder)
-        self.other_csv_tables = load_other_csv_tables(csv_folder)
-        self.time_series_tables = load_time_series_csv_tables(csv_folder)
+        network, _loaded_network = self._apply_network_load_artifacts(
+            artifacts,
+            loaded_source=str(csv_folder),
+            save_network_folder=str(csv_folder),
+        )
         self.network_name = str(network.name or csv_folder.name)
         print(network)
         self.operation_status = "Building canvas object..."
@@ -4914,6 +5347,7 @@ class State(rx.State):
         self.component_counters = component_counters
         self._sync_diagram_model()
         self._mark_network_saved()
+        self._request_canvas_fit_view()
 
     def _network_import_order(self) -> list[str]:
         """Return component list names in bus, branch, component import order."""
@@ -5047,6 +5481,10 @@ class State(rx.State):
         self.is_clear_canvas_dialog_open = False
         self.is_network_data_dialog_open = False
         self.network_data_tabs = []
+        self.is_export_dialog_for_save = False
+        self.unsaved_network_action = ""
+        self.unsaved_network_action_payload = ""
+        self.is_unsaved_changes_dialog_open = False
 
     async def close_operation_dialog(self):
         """Close the current operation dialog."""
@@ -5125,6 +5563,14 @@ class State(rx.State):
                 create_jupyter_network_notebook,
                 network_path,
             )
+            self.operation_status = "Running notebook first cell..."
+            yield
+            await asyncio.to_thread(
+                execute_jupyter_network_notebook,
+                notebook_path,
+            )
+            self.operation_status = "Starting JupyterLab..."
+            yield
             url = await asyncio.to_thread(jupyter_lab_notebook_url, notebook_path)
             self.is_operation_dialog_open = False
             self.operation_title = ""
@@ -5307,6 +5753,7 @@ class State(rx.State):
             )
             self._push_canvas_history()
             self._apply_routed_network(routed_network)
+            self._request_canvas_fit_view()
             self.operation_status = f"{router_label} completed."
             self.is_operation_dialog_open = False
             self.operation_kind = ""
@@ -5326,6 +5773,7 @@ class State(rx.State):
         if self.operation_kind != "route":
             return
         self.operation_status = "Auto routing completed."
+        self._request_canvas_fit_view()
         self.is_operation_dialog_open = False
         self.operation_kind = ""
         self.operation_is_error = False
@@ -5356,6 +5804,79 @@ class State(rx.State):
     def set_load_dialog_open(self, value: bool) -> None:
         """Update whether the load dialog is open."""
         self.is_load_dialog_open = value
+
+    def set_unsaved_changes_dialog_open(self, value: bool) -> None:
+        """Update whether the unsaved-changes dialog is open."""
+        self.is_unsaved_changes_dialog_open = value
+        if not value and self.unsaved_network_action:
+            self.unsaved_network_action = ""
+            self.unsaved_network_action_payload = ""
+
+    def _set_unsaved_network_action(
+        self,
+        action: str,
+        payload: str = "",
+    ) -> None:
+        self.unsaved_network_action = action
+        self.unsaved_network_action_payload = payload
+        self.is_unsaved_changes_dialog_open = True
+
+    async def _run_pending_network_action(self):
+        action = self.unsaved_network_action
+        payload = self.unsaved_network_action_payload
+        self.unsaved_network_action = ""
+        self.unsaved_network_action_payload = ""
+        if action == "new_network":
+            self.new_network()
+            self.open_network_name_dialog()
+        elif action == "load_network_directory":
+            self.is_load_dialog_open = True
+        elif action == "load_pypsa_example_network":
+            async for _ in self.load_pypsa_example_network(payload):
+                yield
+
+    def request_new_network(self) -> None:
+        """Start a new network or ask to handle unsaved changes first."""
+        if self._has_unsaved_network_changes():
+            self._set_unsaved_network_action("new_network")
+            return
+        self.new_network()
+        self.open_network_name_dialog()
+
+    def request_load_network_directory_to_canvas(self) -> None:
+        """Open the local path load dialog or ask to handle unsaved changes first."""
+        if self._has_unsaved_network_changes():
+            self._set_unsaved_network_action("load_network_directory")
+            return
+        self.is_load_dialog_open = True
+
+    async def request_load_pypsa_example_network(self, network_path: str):
+        """Load a bundled example network or ask to handle unsaved changes first."""
+        network_path_text = str(network_path)
+        if self._has_unsaved_network_changes():
+            self._set_unsaved_network_action(
+                "load_pypsa_example_network",
+                network_path_text,
+            )
+            return
+        async for _ in self.load_pypsa_example_network(network_path_text):
+            yield
+
+    async def ignore_unsaved_network_changes_and_open(self):
+        """Ignore unsaved changes and continue with the blocked network action."""
+        self.is_unsaved_changes_dialog_open = False
+        async for _ in self._run_pending_network_action():
+            yield
+
+    async def save_unsaved_network_changes_and_open(self):
+        """Save unsaved changes and continue with the blocked network action."""
+        self.is_unsaved_changes_dialog_open = False
+        async for _ in self.save_canvas_network_to_loaded_folder():
+            yield
+        if self._has_unsaved_network_changes():
+            return
+        async for _ in self._run_pending_network_action():
+            yield
 
     async def choose_network_directory_and_load(self):
         """Open the web dialog for loading a local CSV folder path."""
@@ -5450,9 +5971,12 @@ class State(rx.State):
     def set_export_dialog_open(self, value: bool) -> None:
         """Update whether the export dialog is open."""
         self.is_export_dialog_open = value
+        if not value:
+            self.is_export_dialog_for_save = False
 
     async def choose_export_folder(self):
         """Open the web dialog for setting the export destination path."""
+        self.is_export_dialog_for_save = False
         self.is_export_dialog_open = True
         yield
 
@@ -5494,8 +6018,8 @@ class State(rx.State):
             yield
             return
         if not self.save_network_folder:
-            self.export_error = "Load a PyPSA CSV folder before using Save network."
-            self.export_message = ""
+            self.is_export_dialog_for_save = True
+            self.is_export_dialog_open = True
             yield
             return
 
@@ -5540,6 +6064,26 @@ class State(rx.State):
             self.export_error = f"Could not save network: {exc}"
             self.export_message = ""
             self.show_operation_error("Could not save network", self.export_error)
+            yield
+
+    async def confirm_export_dialog(self):
+        """Run export or save based on the current export dialog mode."""
+        if self.is_export_dialog_for_save:
+            self.is_export_dialog_for_save = False
+            self.is_export_dialog_open = False
+            selected_folder = str(self.export_base_folder).strip()
+            if not selected_folder:
+                self.export_error = (
+                    "Enter a destination folder path before saving this network."
+                )
+                self.export_message = ""
+                return
+            self.save_network_folder = selected_folder
+            async for _ in self.save_canvas_network_to_loaded_folder():
+                yield
+            return
+
+        async for _ in self.export_canvas_network():
             yield
 
     async def export_canvas_network(self):
@@ -5775,6 +6319,10 @@ class State(rx.State):
     def _selected_attr_rows_for_node(self, node: DiagramNode) -> list[DiagramAttr]:
         """Return selected-node attr rows with time-series affordance flags."""
         component_name = str(node["component"])
+        attrs = node.get("attrs", {})
+        pypsa_name = (
+            str(attrs.get("name") or node["id"]) if isinstance(attrs, dict) else node["id"]
+        )
         time_series_components = {
             "buses",
             "loads",
@@ -5793,6 +6341,11 @@ class State(rx.State):
                 "has_time_series_table": bool(
                     row["is_time_series"] and component_name in time_series_components
                 ),
+                "has_time_series_value": self._has_time_series_value(
+                    component_name,
+                    str(row["name"]),
+                    pypsa_name,
+                ),
             }
             for row in node["attr_rows"]
         ]
@@ -5802,6 +6355,7 @@ class State(rx.State):
         self.selected_node_id = node_id
         for node in self.diagram_nodes:
             if node["id"] == node_id:
+                self.show_right_sidebar = True
                 self.selected_component_name = str(node["pypsa_name"])
                 self.selected_attr_rows = self._selected_attr_rows_for_node(node)
                 return
@@ -5874,7 +6428,7 @@ class State(rx.State):
             self.branch_bus0_node_id = ""
         self._sync_diagram_model()
 
-    def open_selected_time_series_attr(self, attr_name: str) -> None:
+    async def open_selected_time_series_attr(self, attr_name: str):
         """Open the selected component column for a time-series attribute."""
         if not self.selected_node_id:
             return
@@ -5883,7 +6437,22 @@ class State(rx.State):
                 continue
             component_name = str(node["component"])
             pypsa_name = str(node["attrs"].get("name") or node["id"])
+            self.is_operation_dialog_open = True
+            self.operation_title = "Loading time series"
+            self.operation_status = f"Opening {component_name}.{attr_name}..."
+            self.operation_kind = "load"
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            yield
+
             self._open_time_series_table(component_name, str(attr_name), pypsa_name)
+            self.is_operation_dialog_open = False
+            self.operation_title = ""
+            self.operation_status = ""
+            self.operation_kind = ""
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            yield
             return
 
     def update_node_positions(self, updates: list[dict[str, object]]) -> None:
@@ -6170,6 +6739,7 @@ def index() -> rx.Component:
         operation_dialog(),
         clear_canvas_dialog(),
         network_name_dialog(),
+        unsaved_changes_dialog(),
         load_network_dialog(),
         export_network_dialog(),
         other_component_dialog(),

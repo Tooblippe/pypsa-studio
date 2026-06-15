@@ -1,0 +1,47 @@
+Running scraped cell 1/5
+<chp-fixed-heat-power-ratio:cell-1>:36: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['Frankfurt', 'Frankfurt heat', 'Frankfurt gas'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['OCGT', 'CHP'], dtype='str', name='name')
+WARNING:pypsa.consistency:Encountered nan's in static data for columns ['efficiency2'] of component 'Link'.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-n2_97ksl has 11 rows; 5 cols; 16 nonzeros
+Coefficient ranges:
+  Matrix  [3e-01, 1e+00]
+  Cost    [1e+02, 1e+03]
+  Bound   [0e+00, 0e+00]
+  RHS     [3e+00, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-11); columns 0(-5); nonzeros 0(-16) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-n2_97ksl
+Model status        : Optimal
+Objective value     :  1.8500000000e+04
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 5 primals, 11 duals
+Objective: 1.85e+04
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-ext-p-lower, Link-ext-p-upper were not assigned to the network.
+Running scraped cell 2/5
+Running scraped cell 3/5
+Running scraped cell 4/5
+Running scraped cell 5/5
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/chp-fixed-heat-power-ratio/chp-fixed-heat-power-ratio.nc contains: generators, links, buses, loads, sub_networks
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/chp-fixed-heat-power-ratio/chp-fixed-heat-power-ratio.nc

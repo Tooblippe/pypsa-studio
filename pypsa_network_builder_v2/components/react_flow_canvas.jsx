@@ -334,7 +334,7 @@ function SchematicNode({ data, selected }) {
       data-is-bus={data.isBus ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-branch-armed={data.branchArmed && data.isBus ? "true" : "false"}
-      data-branch-hover={data.branchArmed && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
+      data-connection-hover={data.connectionDrag && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
       data-branch-start={data.branchBus0NodeId === data.nodeId ? "true" : "false"}
       title={`${data.label} (${data.component})`}
     >
@@ -398,6 +398,7 @@ function CanvasInner({
   nodes = [],
   edges = [],
   routeVersion = 0,
+  fitViewVersion = 0,
   armedComponent = "",
   armedBranchComponent = "",
   branchBus0NodeId = "",
@@ -455,7 +456,7 @@ function CanvasInner({
             isBus: node.component === "buses",
             branchArmed: Boolean(armedBranchComponent),
             connectionDrag: isConnectionDrag,
-            hoverBusId,
+            hoverBusId: isConnectionDrag ? hoverBusId : "",
             branchBus0NodeId,
             symbolHeight: meta.height,
             busSymbolHeight: symbolHeight,
@@ -563,6 +564,44 @@ function CanvasInner({
     },
     [reactFlow],
   );
+
+  useEffectReactFlowCanvas(() => {
+    if (!fitViewVersion) return;
+    if (!nodes.length) return;
+    let cancelled = false;
+
+    const hasDrawableNodes = () => {
+      if (typeof reactFlow.getNodes === "function") {
+        return (reactFlow.getNodes() || []).length > 0;
+      }
+      return flowNodes.length > 0;
+    };
+
+    const runFitView = () => {
+      if (!hasDrawableNodes()) return false;
+      reactFlow.fitView?.({ padding: 0.18 });
+      return true;
+    };
+
+    const timer = window.setTimeout(() => {
+      const attemptFit = (retry) => {
+        if (cancelled) return;
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            if (!runFitView() && retry < 5) {
+              window.setTimeout(() => attemptFit(retry + 1), 120);
+            }
+          });
+        });
+      };
+      attemptFit(0);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [fitViewVersion, flowNodes.length, nodes.length, reactFlow]);
 
   const busIdAtPoint = useCallbackReactFlowCanvas(
     (clientX, clientY) => {
@@ -702,23 +741,6 @@ function CanvasInner({
     [armedBranchComponent, onNodeSelect],
   );
 
-  const handleNodeMouseEnter = useCallbackReactFlowCanvas(
-    (_, node) => {
-      if (armedBranchComponent && node?.data?.isBus) {
-        setHoverBusId((currentHoverBusId) =>
-          currentHoverBusId === node.id ? currentHoverBusId : node.id,
-        );
-      }
-    },
-    [armedBranchComponent],
-  );
-
-  const handleNodeMouseLeave = useCallbackReactFlowCanvas((_, node) => {
-    if (node?.id === hoverBusId) {
-      setHoverBusId("");
-    }
-  }, [hoverBusId]);
-
   const handleEdgeClick = useCallbackReactFlowCanvas(
     (_, edge) => {
       if (armedBranchComponent) return;
@@ -795,8 +817,6 @@ function CanvasInner({
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
         onNodeMouseDown={handleNodeMouseDown}
-        onNodeMouseEnter={handleNodeMouseEnter}
-        onNodeMouseLeave={handleNodeMouseLeave}
         onEdgeClick={handleEdgeClick}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}

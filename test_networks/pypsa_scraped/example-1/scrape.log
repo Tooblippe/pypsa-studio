@@ -1,0 +1,51 @@
+Running scraped cell 1/11
+Running scraped cell 2/11
+Running scraped cell 3/11
+Running scraped cell 4/11
+Running scraped cell 5/11
+Running scraped cell 6/11
+Running scraped cell 7/11
+<example-1:cell-7>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['zone_1', 'zone_2'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following lines have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['line_1'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following lines have zero r, which could break the linear load flow:
+Index(['line_1'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.11s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+QP linopy-problem-08rf2rdg has 8 rows; 3 cols; 10 matrix nonzeros; 3 Hessian nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [1e+01, 1e+01]
+  Hessian [1e-02, 2e-02]
+  Bound   [0e+00, 0e+00]
+  RHS     [4e+02, 2e+03]
+  Iteration        Objective     NullspaceDim
+          0        39450.109                0      0.00s
+          0        39450.109                0      0.00s
+Model name          : linopy-problem-08rf2rdg
+Model status        : Optimal
+Objective value     :  3.9450000000e+04
+P-D objective error :  2.7629484757e-06
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 3 primals, 8 duals
+Objective: 3.94e+04
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Line-fix-s-lower, Line-fix-s-upper were not assigned to the network.
+Running scraped cell 8/11
+Running scraped cell 9/11
+Running scraped cell 10/11
+Running scraped cell 11/11
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/example-1/example-1.nc contains: sub_networks, generators, loads, lines, buses
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/example-1/example-1.nc

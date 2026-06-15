@@ -1,0 +1,3 @@
+name,bus0,bus1,type,model,sub_network
+transformer_1,vbus,buse_9,0.25 MVA 20/0.4 kV,t,
+transformer_2,buse_9,,0.4 MVA 10/0.4 kV,t,

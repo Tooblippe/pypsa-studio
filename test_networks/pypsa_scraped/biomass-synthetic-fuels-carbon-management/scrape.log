@@ -1,0 +1,73 @@
+Running scraped cell 1/14
+Running scraped cell 2/14
+Running scraped cell 3/14
+Running scraped cell 4/14
+Running scraped cell 5/14
+Running scraped cell 6/14
+Running scraped cell 7/14
+Running scraped cell 8/14
+Running scraped cell 9/14
+Running scraped cell 10/14
+Running scraped cell 11/14
+<biomass-synthetic-fuels-carbon-management:cell-11>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['electricity', 'transport', 'diesel', 'hydrogen', 'co2 stored', 'gas',
+       'biomass'],
+      dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['electrolysis', 'Fischer-Tropsch', 'DAC', 'diesel car', 'OCGT',
+       'OCGT+CCS', 'biomass', 'biomass+CCS'],
+      dtype='str', name='name')
+WARNING:pypsa.consistency:Encountered nan's in static data for columns ['efficiency3', 'efficiency2'] of component 'Link'.
+WARNING:pypsa.consistency:The following stores have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['diesel', 'hydrogen', 'co2 stored', 'gas', 'biomass'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.03s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-wxyzp7xg has 425 rows; 204 cols; 801 nonzeros
+Coefficient ranges:
+  Matrix  [1e-01, 1e+00]
+  Cost    [1e+00, 3e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+00, 1e+03]
+Presolving model
+136 rows, 178 cols, 458 nonzeros 0s
+90 rows, 132 cols, 366 nonzeros 0s
+72 rows, 114 cols, 330 nonzeros 0s
+Dependent equations search running on 52 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+72 rows, 114 cols, 330 nonzeros 0s
+Presolve reductions: rows 72(-353); columns 114(-90); nonzeros 330(-471) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0     0.0000000000e+00 Ph1: 0(0) 0.0s
+         83     2.0221666667e+03 Pr: 0(0); Du: 0(7.09684e-13) 0.0s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-wxyzp7xg
+Model status        : Optimal
+Simplex   iterations: 83
+Objective value     :  2.0221666667e+03
+P-D objective error :  2.8103206424e-16
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 204 primals, 425 duals
+Objective: 2.02e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Link-fix-p-lower, Link-fix-p-upper, Link-ext-p-lower, Link-ext-p-upper, Store-fix-e-lower, Store-fix-e-upper, Store-energy_balance were not assigned to the network.
+Running scraped cell 12/14
+Running scraped cell 13/14
+Running scraped cell 14/14
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/biomass-synthetic-fuels-carbon-management/biomass-synthetic-fuels-carbon-management.nc contains: loads, stores, carriers, sub_networks, global_constraints, links, buses
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/biomass-synthetic-fuels-carbon-management/biomass-synthetic-fuels-carbon-management.nc
