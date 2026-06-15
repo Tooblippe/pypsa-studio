@@ -1,7 +1,7 @@
 [project]
 name = "pypsa-network-builder-v2"
 version = "0.1.0"
-description = "A Reflex application scaffold."
+description = "PyPSA drag an drop network builder"
 readme = "README.md"
 requires-python = "==3.14.*"
 dependencies = [

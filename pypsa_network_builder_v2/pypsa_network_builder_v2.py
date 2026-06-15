@@ -1,7 +1,5 @@
 import asyncio
 import json
-import subprocess
-import sys
 from pathlib import Path
 from typing import TypedDict
 from urllib.parse import quote
@@ -54,28 +52,27 @@ def choose_export_folder() -> str:
 
 
 def choose_local_folder(prompt: str) -> str:
-    """Open a macOS native directory picker and return the selected folder path."""
-    if sys.platform == "darwin":
-        result = subprocess.run(
-            [
-                "osascript",
-                "-e",
-                (
-                    "POSIX path of (choose folder with prompt "
-                    f"{json.dumps(prompt)})"
-                ),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return ""
-        return result.stdout.strip()
+    """Open a Tk native directory picker and return the selected folder path."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError as exc:
+        raise RuntimeError(
+            "Tkinter is not available in this Python installation."
+        ) from exc
 
-    raise RuntimeError(
-        "Native directory selection is only implemented for macOS in this app."
-    )
+    root = tk.Tk()
+    root.withdraw()
+    root.update()
+    try:
+        selected_folder = filedialog.askdirectory(
+            parent=root,
+            title=prompt,
+            mustexist=True,
+        )
+        return str(selected_folder or "")
+    finally:
+        root.destroy()
 
 
 def is_valid_pypsa_csv_folder(csv_folder: Path) -> bool:
@@ -699,7 +696,8 @@ def palette_sidebar() -> rx.Component:
         align="stretch",
         width="120px",
         min_width="120px",
-        height="720px",
+        height="100%",
+        min_height="0",
         overflow_y="auto",
         padding="6px",
         border_right="1px solid var(--gray-5)",
@@ -793,7 +791,8 @@ def right_sidebar() -> rx.Component:
         align="stretch",
         width="300px",
         min_width="300px",
-        height="720px",
+        height="100%",
+        min_height="0",
         overflow_y="auto",
         padding="12px",
         border_left="1px solid var(--gray-5)",
@@ -826,6 +825,22 @@ def drag_payload_script() -> rx.Component:
             window.__pypsaBuilderActiveComponent = "";
           }, true);
         }
+        """
+    )
+
+
+def directory_upload_script(upload_id: str) -> rx.Component:
+    """Enable directory selection on a Reflex upload file input."""
+    return rx.script(
+        f"""
+        setTimeout(() => {{
+          const input = document.querySelector("#{upload_id} input[type='file']");
+          if (input) {{
+            input.setAttribute("webkitdirectory", "");
+            input.setAttribute("directory", "");
+            input.setAttribute("mozdirectory", "");
+          }}
+        }}, 0);
         """
     )
 
@@ -878,13 +893,15 @@ def builder_tab() -> rx.Component:
                     ),
                     flex="1",
                     min_width="0",
-                    height="680px",
+                    min_height="0",
+                    height="100%",
                     width="100%",
                     class_name="canvas-panel",
                 ),
                 flex="1",
                 min_width="0",
-                height="720px",
+                min_height="0",
+                height="100%",
                 width="100%",
                 spacing="0",
                 align="stretch",
@@ -893,28 +910,45 @@ def builder_tab() -> rx.Component:
             spacing="0",
             align="stretch",
             width="100%",
+            flex="1",
             border="1px solid var(--gray-5)",
             border_radius="8px",
             overflow="hidden",
+            min_height="0",
             min_width="0",
             class_name="builder-shell",
         ),
         spacing="4",
         align="stretch",
         width="100%",
+        flex="1",
+        min_height="0",
         max_width="100%",
     )
 
 
 def builder_load_network_button() -> rx.Component:
-    """Render the toolbar button that opens the native network directory picker."""
-    return rx.button(
-        rx.cond(State.is_loading_network, "Loading network...", "Load network"),
-        aria_label="Load PyPSA network directory",
-        title="Choose a PyPSA CSV folder",
-        on_click=State.choose_network_directory_and_load,
-        disabled=State.is_loading_network,
-        variant="soft",
+    """Render the toolbar control for uploading a PyPSA CSV folder."""
+    return rx.box(
+        rx.upload(
+            rx.button(
+                rx.cond(State.is_loading_network, "Loading network...", "Load network"),
+                aria_label="Load PyPSA network directory",
+                title="Choose a PyPSA CSV folder",
+                disabled=State.is_loading_network,
+                variant="soft",
+            ),
+            id=BUILDER_LOAD_FOLDER_UPLOAD_ID,
+            multiple=True,
+            accept={"text/csv": [".csv"]},
+            on_drop=State.load_network_folder_to_canvas(
+                rx.upload_files(upload_id=BUILDER_LOAD_FOLDER_UPLOAD_ID)
+            ),
+            border="none",
+            padding="0",
+            width="fit-content",
+        ),
+        directory_upload_script(BUILDER_LOAD_FOLDER_UPLOAD_ID),
     )
 
 
@@ -1411,18 +1445,7 @@ def upload_panel() -> rx.Component:
             padding="18px",
             width="100%",
         ),
-        rx.script(
-            f"""
-            setTimeout(() => {{
-              const input = document.querySelector("#{FOLDER_UPLOAD_ID} input[type='file']");
-              if (input) {{
-                input.setAttribute("webkitdirectory", "");
-                input.setAttribute("directory", "");
-                input.setAttribute("mozdirectory", "");
-              }}
-            }}, 0);
-            """
-        ),
+        directory_upload_script(FOLDER_UPLOAD_ID),
         rx.hstack(
             rx.button(
                 "Load directory",
@@ -1796,6 +1819,42 @@ class State(rx.State):
         except Exception as exc:
             self.export_error = f"Could not load network onto canvas: {exc}"
             self.export_message = ""
+
+    async def load_network_folder_to_canvas(self, files: list[rx.UploadFile]):
+        """Load an uploaded PyPSA CSV export folder directly onto the canvas."""
+        if not files:
+            self.export_error = "Choose a PyPSA CSV export directory first."
+            self.export_message = ""
+            return
+
+        try:
+            self.is_loading_network = True
+            self.is_operation_dialog_open = True
+            self.operation_title = "Loading network"
+            self.operation_status = "Uploading CSV folder..."
+            self.operation_kind = "load"
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            self.network_load_status = self.operation_status
+            self.export_message = ""
+            self.export_error = ""
+            yield
+
+            payloads = []
+            for upload in files:
+                file_name = str(upload.path or upload.name or "uploaded-file")
+                payloads.append((file_name, await upload.read()))
+
+            csv_folder = save_uploads_as_csv_folder(payloads, rx.get_upload_dir())
+            async for _ in self._load_canvas_from_selected_network_directory(csv_folder):
+                yield
+        except Exception as exc:
+            self.export_error = f"Could not load uploaded network folder: {exc}"
+            self.export_message = ""
+            self.is_loading_network = False
+            self.network_load_status = ""
+            self.show_operation_error("Could not load network", self.export_error)
+            yield
 
     async def load_network_directory_to_canvas(self, files: list[rx.UploadFile]):
         """Load the parent folder of a selected network CSV file onto the canvas."""
@@ -2667,18 +2726,29 @@ def index() -> rx.Component:
                     rx.tabs.trigger("Catalog", value="catalog"),
                     class_name="tab-list",
                 ),
-                rx.tabs.content(builder_tab(), value="builder"),
+                rx.tabs.content(
+                    builder_tab(),
+                    value="builder",
+                    flex="1",
+                    min_height="0",
+                    display="flex",
+                    flex_direction="column",
+                ),
                 rx.tabs.content(debug_network_tab(), value="debug-network"),
                 rx.tabs.content(catalog_tab(), value="catalog"),
                 default_value="builder",
                 width="100%",
+                height="100%",
+                display="flex",
+                flex_direction="column",
+                min_height="0",
                 class_name="app-tabs",
             ),
             flex="1",
             min_height="0",
             width="100%",
             padding="10px",
-            overflow="auto",
+            overflow="hidden",
             class_name="app-content",
         ),
         footer_bar(),
