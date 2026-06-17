@@ -1,0 +1,278 @@
+Running scraped cell 1/38
+Running scraped cell 2/38
+Running scraped cell 3/38
+Running scraped cell 4/38
+<simple-electricity-market-examples:cell-4>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['South Africa'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-7u4u_vzd has 9 rows; 4 cols; 12 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [3e+01, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [2e+03, 4e+04]
+Presolving model
+1 rows, 3 cols, 3 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-9); columns 0(-4); nonzeros 0(-12) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-7u4u_vzd
+Model status        : Optimal
+Objective value     :  1.2900000000e+06
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 4 primals, 9 duals
+Objective: 1.29e+06
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper were not assigned to the network.
+Running scraped cell 5/38
+Running scraped cell 6/38
+Running scraped cell 7/38
+Running scraped cell 8/38
+Running scraped cell 9/38
+<simple-electricity-market-examples:cell-9>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['Mozambique', 'South Africa'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['South Africa - Mozambique link'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-2scq55s1 has 14 rows; 6 cols; 19 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [3e+01, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [5e+02, 4e+04]
+Presolving model
+1 rows, 3 cols, 3 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-14); columns 0(-6); nonzeros 0(-19) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-2scq55s1
+Model status        : Optimal
+Objective value     :  1.2600000000e+06
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 6 primals, 14 duals
+Objective: 1.26e+06
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 10/38
+Running scraped cell 11/38
+Running scraped cell 12/38
+Running scraped cell 13/38
+Running scraped cell 14/38
+Running scraped cell 15/38
+Running scraped cell 16/38
+<simple-electricity-market-examples:cell-16>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['Eswatini', 'Mozambique', 'South Africa'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['Mozambique - Eswatini link', 'South Africa - Eswatini link',
+       'South Africa - Mozambique link'],
+      dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-zt_btptx has 21 rows; 9 cols; 30 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [3e+01, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+02, 4e+04]
+Presolving model
+2 rows, 5 cols, 6 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-21); columns 0(-9); nonzeros 0(-30) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-zt_btptx
+Model status        : Optimal
+Objective value     :  1.2450000000e+06
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 9 primals, 21 duals
+Objective: 1.24e+06
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 17/38
+Running scraped cell 18/38
+Running scraped cell 19/38
+Running scraped cell 20/38
+Running scraped cell 21/38
+Running scraped cell 22/38
+Running scraped cell 23/38
+<simple-electricity-market-examples:cell-23>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['South Africa'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-t5kt_h5j has 11 rows; 5 cols; 15 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [3e+01, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [2e+03, 4e+04]
+Presolving model
+1 rows, 4 cols, 4 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-11); columns 0(-5); nonzeros 0(-15) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-t5kt_h5j
+Model status        : Optimal
+Objective value     :  1.2500000000e+06
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 5 primals, 11 duals
+Objective: 1.25e+06
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper were not assigned to the network.
+Running scraped cell 24/38
+Running scraped cell 25/38
+Running scraped cell 26/38
+Running scraped cell 27/38
+Running scraped cell 28/38
+<simple-electricity-market-examples:cell-28>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['South Africa'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-1n9j9u7z has 36 rows; 16 cols; 48 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [3e+01, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [9e+02, 5e+04]
+Presolving model
+4 rows, 12 cols, 12 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-36); columns 0(-16); nonzeros 0(-48) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-1n9j9u7z
+Model status        : Optimal
+Objective value     :  6.0820000000e+06
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 16 primals, 36 duals
+Objective: 6.08e+06
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper were not assigned to the network.
+Running scraped cell 29/38
+Running scraped cell 30/38
+Running scraped cell 31/38
+Running scraped cell 32/38
+Running scraped cell 33/38
+<simple-electricity-market-examples:cell-33>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['South Africa'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-d_7ydhl8 has 64 rows; 28 cols; 95 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [3e+01, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [9e+02, 5e+04]
+Presolving model
+8 rows, 24 cols, 35 nonzeros 0s
+3 rows, 7 cols, 9 nonzeros 0s
+Dependent equations search running on 3 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+3 rows, 7 cols, 9 nonzeros 0s
+Presolve reductions: rows 3(-61); columns 7(-21); nonzeros 9(-86) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0     0.0000000000e+00 Ph1: 0(0) 0.0s
+          4     6.0460000000e+06 Pr: 0(0) 0.0s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-d_7ydhl8
+Model status        : Optimal
+Simplex   iterations: 4
+Objective value     :  6.0460000000e+06
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 28 primals, 64 duals
+Objective: 6.05e+06
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, StorageUnit-fix-p_dispatch-lower, StorageUnit-fix-p_dispatch-upper, StorageUnit-fix-p_store-lower, StorageUnit-fix-p_store-upper, StorageUnit-fix-state_of_charge-lower, StorageUnit-fix-state_of_charge-upper, StorageUnit-energy_balance were not assigned to the network.
+Running scraped cell 34/38
+Running scraped cell 35/38
+Running scraped cell 36/38
+Running scraped cell 37/38
+Running scraped cell 38/38
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/simple-electricity-market-examples/simple-electricity-market-examples.nc contains: storage_units, loads, generators, sub_networks, buses
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/simple-electricity-market-examples/simple-electricity-market-examples.nc

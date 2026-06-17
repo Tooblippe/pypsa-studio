@@ -1,0 +1,152 @@
+Running scraped cell 1/10
+Running scraped cell 2/10
+Running scraped cell 3/10
+Running scraped cell 4/10
+Running scraped cell 5/10
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['electricity', 'gas'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['gas_plant'], dtype='str', name='name')
+<imperfect-competition:cell-5>:2: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+Linopy QP model
+===============
+
+Variables:
+----------
+ * Generator-p (snapshot, name)
+ * Link-p (snapshot, name)
+
+Constraints:
+------------
+ * Generator-fix-p-lower (snapshot, name)
+ * Generator-fix-p-upper (snapshot, name)
+ * Link-fix-p-lower (snapshot, name)
+ * Link-fix-p-upper (snapshot, name)
+ * Bus-nodal_balance (name, snapshot)
+
+Status:
+-------
+initialized
+Running scraped cell 6/10
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+QP linopy-problem-sv3o8iov has 36 rows; 15 cols; 48 matrix nonzeros; 15 Hessian nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [1e+00, 3e+01]
+  Hessian [1e+00, 4e+00]
+  Bound   [0e+00, 0e+00]
+  RHS     [3e-01, 1e+01]
+  Iteration        Objective     NullspaceDim
+          0                0                0      0.00s
+         27       -296.26665                6      0.00s
+Model name          : linopy-problem-sv3o8iov
+Model status        : Optimal
+QP ASM    iterations: 27
+Objective value     : -2.9626666667e+02
+P-D objective error :  4.4330872013e-08
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 15 primals, 36 duals
+Objective: -2.96e+02
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+
+============================================================
+  Problem A: Perfect Competition (cv = 0)
+============================================================
+  Status: ok | optimal
+  Objective: -296.27
+Running scraped cell 7/10
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['electricity', 'gas'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['gas_plant'], dtype='str', name='name')
+<imperfect-competition:cell-7>:2: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+QP linopy-problem-lcc5z6kh has 36 rows; 15 cols; 48 matrix nonzeros; 15 Hessian nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [1e+00, 3e+01]
+  Hessian [4e+00, 5e+00]
+  Bound   [0e+00, 0e+00]
+  RHS     [3e-01, 1e+01]
+  Iteration        Objective     NullspaceDim
+          0                0                0      0.00s
+         24        -238.8923                6      0.00s
+Model name          : linopy-problem-lcc5z6kh
+Model status        : Optimal
+QP ASM    iterations: 24
+Objective value     : -2.3889230769e+02
+P-D objective error :  2.9869268359e-08
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 15 primals, 36 duals
+Objective: -2.39e+02
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+
+============================================================
+  Problem B: Cournot-Nash Competition (cv = 1)
+============================================================
+  Status: ok | optimal
+  Objective: -238.89
+Running scraped cell 8/10
+======================================================================
+  ECONOMIC ANALYSIS (Totals)
+======================================================================
+
+  --- A: Competitive ---
+    Total gas production cost:    36.32
+    Total producer profit:        20.72
+    Total consumer expenditure:   71.17
+    Total consumer surplus:       261.41
+
+  --- B: Cournot ---
+    Total gas production cost:    20.73
+    Total producer profit:        89.37
+    Total consumer expenditure:   148.69
+    Total consumer surplus:       150.66
+Running scraped cell 9/10
+
+  Competitive total welfare:      282.13
+  Cournot total welfare:          240.03
+  Welfare loss (DWL):             42.10
+
+  Producer profit (competitive):  20.72
+  Producer profit (Cournot):      89.37
+  Oligopolist revenue increase:   68.65
+
+  Consumer surplus (competitive): 261.41
+  Consumer surplus (Cournot):     150.66
+  Consumer surplus loss:          110.76
+
+  Consumer expenditure increase:  77.52
+
+  Decomposition of consumer surplus loss:
+    = Revenue transfer to producers: 68.65
+    + Deadweight loss:               42.10
+    = Total consumer loss:           110.76
+    (actual consumer loss:           110.76)
+Running scraped cell 10/10
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/imperfect-competition/imperfect-competition.nc contains: generators, buses, links
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/imperfect-competition/imperfect-competition.nc

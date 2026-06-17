@@ -1,0 +1,62 @@
+Running scraped cell 1/8
+Running scraped cell 2/8
+<example-2:cell-2>:26: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['zone_1', 'zone_2', 'zone_3'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following lines have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['line_1', 'line_2', 'line_3'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-7op5h8pe has 18 rows; 7 cols; 27 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 2e+01]
+  Cost    [6e+00, 1e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [5e+01, 3e+02]
+Presolving model
+4 rows, 7 cols, 13 nonzeros 0s
+3 rows, 6 cols, 10 nonzeros 0s
+Dependent equations search running on 3 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+3 rows, 6 cols, 10 nonzeros 0s
+Presolve reductions: rows 3(-15); columns 6(-1); nonzeros 10(-17) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0    -4.4457873746e-05 Pr: 3(452) 0.0s
+          4     2.8350000000e+03 Pr: 0(0) 0.0s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-7op5h8pe
+Model status        : Optimal
+Simplex   iterations: 4
+Objective value     :  2.8350000000e+03
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 7 primals, 18 duals
+Objective: 2.84e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Line-fix-s-lower, Line-fix-s-upper, Kirchhoff-Voltage-Law were not assigned to the network.
+Running scraped cell 3/8
+Running scraped cell 4/8
+Running scraped cell 5/8
+WARNING: skipped failed cell 5: NameError: name 'display' is not defined
+Running scraped cell 6/8
+WARNING: skipped failed cell 6: NameError: name 'display' is not defined
+Running scraped cell 7/8
+WARNING: skipped failed cell 7: NameError: name 'display' is not defined
+Running scraped cell 8/8
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/example-2/example-2.nc contains: generators, lines, buses, sub_networks, loads
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/example-2/example-2.nc

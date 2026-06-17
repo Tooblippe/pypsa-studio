@@ -1,0 +1,46 @@
+Running scraped cell 1/23
+Running scraped cell 2/23
+INFO:pypsa.network.io:Imported network 'Model-Energy' has buses, carriers, generators, links, loads, storage_units, stores
+Running scraped cell 3/23
+<water-value:cell-3>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING: skipped failed cell 3: AssertionError: Solver gurobi not installed
+Running scraped cell 4/23
+Running scraped cell 5/23
+WARNING: skipped failed cell 5: KeyError: 'electricity'
+Running scraped cell 6/23
+WARNING: skipped failed cell 6: KeyError: 'electricity'
+Running scraped cell 7/23
+WARNING: skipped failed cell 7: KeyError: 'hydrogen'
+Running scraped cell 8/23
+WARNING: skipped failed cell 8: TypeError: no numeric data to plot
+Running scraped cell 9/23
+INFO:pypsa.optimization.abstract:Optimizing network for snapshot horizon [2019-01-01 00:00:00:2019-01-15 21:00:00] (1/25).
+/Users/tobie/PycharmProjects/pypsa-network-builder-v2/.venv/lib/python3.14/site-packages/pypsa/optimization/abstract.py:545: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+  status, condition = n.optimize(sns, **kwargs)
+WARNING: skipped failed cell 9: AssertionError: Solver gurobi not installed
+Running scraped cell 10/23
+Running scraped cell 11/23
+WARNING: skipped failed cell 11: KeyError: 'electricity'
+Running scraped cell 12/23
+WARNING: skipped failed cell 12: TypeError: no numeric data to plot
+Running scraped cell 13/23
+WARNING: skipped failed cell 13: NameError: name 'msv' is not defined
+Running scraped cell 14/23
+Running scraped cell 15/23
+WARNING: skipped failed cell 15: KeyError: 'electricity'
+Running scraped cell 16/23
+WARNING: skipped failed cell 16: TypeError: no numeric data to plot
+Running scraped cell 17/23
+WARNING: skipped failed cell 17: NameError: name 'msv' is not defined
+Running scraped cell 18/23
+Running scraped cell 19/23
+WARNING: skipped failed cell 19: KeyError: 'electricity'
+Running scraped cell 20/23
+WARNING: skipped failed cell 20: TypeError: no numeric data to plot
+Running scraped cell 21/23
+Running scraped cell 22/23
+WARNING: skipped failed cell 22: NameError: name 'pdc' is not defined
+Running scraped cell 23/23
+WARNING: skipped failed cell 23: TypeError: no numeric data to plot
+INFO:pypsa.network.io:Exported network 'Model-Energy' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/water-value/water-value.nc contains: carriers, links, generators, loads, buses, stores
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/water-value/water-value.nc

@@ -2,11 +2,17 @@ import asyncio
 import copy
 import io
 import json
+import re
+import select
 import shutil
+import subprocess
+import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any, TypedDict
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import pandas as pd
 import reflex as rx
@@ -78,6 +84,213 @@ SNAPSHOT_TABLE_INDEX_NAMES = {
 }
 APP_STATE_DIR = Path(".states")
 APP_SETTINGS_FILE = APP_STATE_DIR / "pypsa_network_builder_settings.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PYPSA_EXAMPLES_DIR = PROJECT_ROOT / "test_networks" / "pypsa_examples"
+JUPYTER_ROOT_DIR = PROJECT_ROOT / ".jupyter"
+JUPYTER_NOTEBOOKS_DIR = JUPYTER_ROOT_DIR / "notebooks"
+JUPYTER_RUNTIME_DIR = JUPYTER_ROOT_DIR / "runtime"
+JUPYTER_START_TIMEOUT_SECONDS = 30
+_JUPYTER_PROCESS: subprocess.Popen[str] | None = None
+_JUPYTER_BASE_URL = ""
+
+
+def _notebook_source_for_network(network_path: Path) -> str:
+    """Return notebook code that loads and prints a PyPSA network."""
+    return f'''from pathlib import Path
+import tempfile
+import zipfile
+
+import pypsa
+
+
+NETWORK_PATH = Path(r"{network_path}").expanduser()
+
+
+def load_network(path: Path) -> pypsa.Network:
+    n = pypsa.Network()
+    if path.is_dir():
+        n.import_from_csv_folder(path)
+        return n
+
+    suffix = path.suffix.lower()
+    if suffix == ".nc":
+        n.import_from_netcdf(path)
+        return n
+    if suffix in {{".h5", ".hdf5"}}:
+        n.import_from_hdf5(path)
+        return n
+    if suffix == ".zip":
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            extract_dir = Path(tmp_dir)
+            with zipfile.ZipFile(path) as archive:
+                archive.extractall(extract_dir)
+            candidates = [
+                candidate
+                for candidate in [extract_dir, *extract_dir.rglob("*")]
+                if candidate.is_dir()
+                and ((candidate / "buses.csv").exists() or (candidate / "network.csv").exists())
+            ]
+            if not candidates:
+                raise ValueError("Zip file does not contain a recognizable PyPSA CSV folder export.")
+            n.import_from_csv_folder(candidates[0])
+            return n
+
+    raise ValueError(f"Unsupported PyPSA network path: {{path}}")
+
+
+n = load_network(NETWORK_PATH)
+print(n)
+n
+'''
+
+
+def create_jupyter_network_notebook(network_path: Path) -> Path:
+    """Create a notebook under .jupyter that loads the given network."""
+    JUPYTER_NOTEBOOKS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", network_path.stem or "network").strip("-")
+    notebook_path = JUPYTER_NOTEBOOKS_DIR / f"open-{safe_stem}-{int(time.time())}.ipynb"
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": _notebook_source_for_network(network_path),
+            }
+        ],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            },
+            "language_info": {"name": "python", "pygments_lexer": "ipython3"},
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    notebook_path.write_text(json.dumps(notebook, indent=2), encoding="utf-8")
+    return notebook_path
+
+
+def _extract_jupyter_url(output_line: str) -> str:
+    """Extract the first local Jupyter URL from server output."""
+    match = re.search(r"https?://(?:localhost|127\.0\.0\.1):\d+/\S*", output_line)
+    return match.group(0).rstrip() if match else ""
+
+
+def _ensure_jupyter_lab_server() -> str:
+    """Start or reuse a JupyterLab server and return its base URL."""
+    global _JUPYTER_BASE_URL, _JUPYTER_PROCESS
+
+    if _JUPYTER_PROCESS is not None and _JUPYTER_PROCESS.poll() is None and _JUPYTER_BASE_URL:
+        return _JUPYTER_BASE_URL
+
+    JUPYTER_ROOT_DIR.mkdir(parents=True, exist_ok=True)
+    JUPYTER_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        "-m",
+        "jupyter",
+        "lab",
+        "--no-browser",
+        "--ServerApp.open_browser=False",
+        f"--ServerApp.root_dir={JUPYTER_ROOT_DIR}",
+        f"--ServerApp.runtime_dir={JUPYTER_RUNTIME_DIR}",
+    ]
+    _JUPYTER_PROCESS = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        cwd=PROJECT_ROOT,
+    )
+
+    output: list[str] = []
+    deadline = time.monotonic() + JUPYTER_START_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if _JUPYTER_PROCESS.stdout is None:
+            break
+        readable, _, _ = select.select([_JUPYTER_PROCESS.stdout], [], [], 0.2)
+        line = _JUPYTER_PROCESS.stdout.readline() if readable else ""
+        if line:
+            output.append(line)
+            url = _extract_jupyter_url(line)
+            if url:
+                _JUPYTER_BASE_URL = url
+                _start_jupyter_output_drain(_JUPYTER_PROCESS)
+                return _JUPYTER_BASE_URL
+            continue
+        if _JUPYTER_PROCESS.poll() is not None:
+            break
+        time.sleep(0.1)
+
+    exit_code = _JUPYTER_PROCESS.poll()
+    detail = "".join(output[-8:]).strip()
+    if exit_code is not None:
+        raise RuntimeError(
+            f"JupyterLab exited before it published a URL. {detail}"
+        )
+    raise RuntimeError(
+        f"Timed out waiting for JupyterLab to start. {detail}"
+    )
+
+
+def _start_jupyter_output_drain(process: subprocess.Popen[str]) -> None:
+    """Drain Jupyter output after startup so the server cannot block on a full pipe."""
+    if process.stdout is None:
+        return
+
+    def drain() -> None:
+        try:
+            for _ in process.stdout:
+                pass
+        except Exception:
+            return
+
+    threading.Thread(target=drain, daemon=True).start()
+
+
+def jupyter_lab_notebook_url(notebook_path: Path) -> str:
+    """Return a JupyterLab URL that opens the generated notebook."""
+    base_url = _ensure_jupyter_lab_server()
+    split_url = urlsplit(base_url)
+    query_items = dict(parse_qsl(split_url.query, keep_blank_values=True))
+    relative_path = notebook_path.relative_to(JUPYTER_ROOT_DIR).as_posix()
+    path = "/lab/tree/" + quote(relative_path, safe="/")
+    return urlunsplit(
+        (
+            split_url.scheme,
+            split_url.netloc,
+            path,
+            urlencode(query_items),
+            "",
+        )
+    )
+
+
+def discover_pypsa_example_networks() -> list[ExampleNetworkGroup]:
+    """Return bundled PyPSA example .nc files grouped by top-level directory."""
+    if not PYPSA_EXAMPLES_DIR.exists():
+        return []
+    groups: list[ExampleNetworkGroup] = []
+    for directory in sorted(PYPSA_EXAMPLES_DIR.iterdir()):
+        if not directory.is_dir():
+            continue
+        networks = [
+            {
+                "label": path.relative_to(directory).as_posix(),
+                "path": str(path),
+            }
+            for path in sorted(directory.rglob("*.nc"))
+        ]
+        if networks:
+            groups.append({"label": directory.name, "networks": networks})
+    return groups
+
+
+PYPSA_EXAMPLE_NETWORKS = discover_pypsa_example_networks()
 
 
 def load_csv_folder_network(csv_folder: Path) -> tuple[pypsa.Network, PypsaLoadedNetwork]:
@@ -93,6 +306,14 @@ def load_csv_folder_network(csv_folder: Path) -> tuple[pypsa.Network, PypsaLoade
         network,
         source=str(csv_folder),
     )
+    return network, loaded_network
+
+
+def load_network_file(network_path: Path) -> tuple[pypsa.Network, PypsaLoadedNetwork]:
+    """Load a PyPSA network file and derived metadata off the Reflex event loop."""
+    path = Path(network_path).expanduser()
+    network = load_pypsa_network(path)
+    loaded_network = pypsa_network_to_loaded_network(network, source=str(path))
     return network, loaded_network
 
 
@@ -240,6 +461,16 @@ class RouterOption(TypedDict):
     name: str
     label: str
     description: str
+
+
+class ExampleNetworkOption(TypedDict):
+    label: str
+    path: str
+
+
+class ExampleNetworkGroup(TypedDict):
+    label: str
+    networks: list[ExampleNetworkOption]
 
 
 class OtherTableCell(TypedDict):
@@ -1191,16 +1422,41 @@ def palette_section(
     )
 
 
-def primary_palette_section() -> rx.Component:
-    """Render bus, component, and branch icons as one compact palette group."""
-    return rx.grid(
-        rx.foreach(State.palette["fundamental"], palette_item),
-        rx.foreach(State.palette["primary_components"], palette_item),
-        rx.foreach(State.palette["primary_branch_components"], branch_palette_item),
-        rx.foreach(State.palette["delayed_components"], palette_item),
-        rx.foreach(State.palette["delayed_branch_components"], branch_palette_item),
-        columns="3",
+def bus_palette_section() -> rx.Component:
+    """Render bus and bus-attached component icons."""
+    return rx.vstack(
+        rx.text("Bus", size="1", weight="medium", color_scheme="gray"),
+        rx.grid(
+            rx.foreach(State.palette["fundamental"], palette_item),
+            rx.foreach(State.palette["primary_components"], palette_item),
+            rx.foreach(State.palette["delayed_components"], palette_item),
+            columns="2",
+            spacing="1",
+            width="100%",
+        ),
         spacing="1",
+        align="center",
+        width="108px",
+        padding="5px",
+        border="1px solid var(--gray-6)",
+        border_radius="6px",
+        background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
+    )
+
+
+def branch_palette_section() -> rx.Component:
+    """Render branch component icons."""
+    return rx.vstack(
+        rx.text("Branch", size="1", weight="medium", color_scheme="gray"),
+        rx.grid(
+            rx.foreach(State.palette["primary_branch_components"], branch_palette_item),
+            rx.foreach(State.palette["delayed_branch_components"], branch_palette_item),
+            columns="2",
+            spacing="1",
+            width="100%",
+        ),
+        spacing="1",
+        align="center",
         width="108px",
         padding="5px",
         border="1px solid var(--gray-6)",
@@ -1212,10 +1468,11 @@ def primary_palette_section() -> rx.Component:
 def palette_sidebar() -> rx.Component:
     """Render the left component palette for the builder."""
     return rx.vstack(
-        primary_palette_section(),
+        palette_section("Snapshots", State.palette["snapshot_tables"], columns="2", inert=True),
+        bus_palette_section(),
+        branch_palette_section(),
         palette_section("Other", State.palette["other"], columns="2", inert=True),
         palette_section("Types", State.palette["standard_types"], columns="2", inert=True),
-        palette_section("Snapshots", State.palette["snapshot_tables"], columns="2", inert=True),
         spacing="2",
         align="stretch",
         width="120px",
@@ -1421,14 +1678,29 @@ def right_sidebar() -> rx.Component:
         ),
         spacing="4",
         align="stretch",
-        width="300px",
-        min_width="300px",
+        width="var(--inspector-width, 300px)",
+        min_width="220px",
+        max_width="560px",
         height="100%",
         min_height="0",
         overflow_y="auto",
         padding="12px",
         border_left="1px solid var(--gray-5)",
         class_name="inspector-sidebar",
+    )
+
+
+def inspector_resize_handle() -> rx.Component:
+    """Render the draggable divider between canvas and inspector."""
+    return rx.box(
+        aria_label="Resize selection panel",
+        title="Drag to resize selection panel",
+        custom_attrs={"data-inspector-resize-handle": "true"},
+        width="7px",
+        min_width="7px",
+        height="100%",
+        cursor="col-resize",
+        class_name="inspector-resize-handle",
     )
 
 
@@ -1465,8 +1737,56 @@ def drag_payload_script() -> rx.Component:
     )
 
 
+def inspector_resize_script() -> rx.Component:
+    """Install browser resizing for the inspector sidebar."""
+    return rx.script(
+        """
+        if (!window.__pypsaInspectorResizeBound) {
+          window.__pypsaInspectorResizeBound = true;
+          const savedWidth = localStorage.getItem("pypsaInspectorWidth");
+          if (savedWidth) {
+            document.documentElement.style.setProperty("--inspector-width", savedWidth);
+          }
+          let resizeState = null;
+          const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+          document.addEventListener("pointerdown", (event) => {
+            const handle = event.target.closest("[data-inspector-resize-handle]");
+            if (!handle) return;
+            const shell = handle.closest(".builder-shell");
+            if (!shell) return;
+            resizeState = {
+              shell,
+              pointerId: event.pointerId,
+            };
+            handle.setPointerCapture?.(event.pointerId);
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            event.preventDefault();
+          }, true);
+          document.addEventListener("pointermove", (event) => {
+            if (!resizeState) return;
+            const rect = resizeState.shell.getBoundingClientRect();
+            const width = clamp(rect.right - event.clientX, 220, 560);
+            const cssWidth = `${width}px`;
+            resizeState.shell.style.setProperty("--inspector-width", cssWidth);
+            localStorage.setItem("pypsaInspectorWidth", cssWidth);
+            event.preventDefault();
+          }, true);
+          const stopResize = () => {
+            if (!resizeState) return;
+            resizeState = null;
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+          };
+          document.addEventListener("pointerup", stopResize, true);
+          document.addEventListener("pointercancel", stopResize, true);
+        }
+        """
+    )
+
+
 def canvas_shortcuts_script() -> rx.Component:
-    """Install canvas undo/redo keyboard shortcuts."""
+    """Install application keyboard shortcuts."""
     return rx.script(
         """
         if (!window.__pypsaBuilderShortcutsBound) {
@@ -1479,8 +1799,49 @@ def canvas_shortcuts_script() -> rx.Component:
               tag === "input" ||
               tag === "textarea" ||
               tag === "select";
-            if (editable || !event.ctrlKey || event.altKey || event.metaKey) return;
+            if (editable || event.metaKey) return;
             const key = String(event.key || "").toLowerCase();
+            if (event.altKey && !event.ctrlKey && !event.shiftKey) {
+              const menuTriggers = {
+                n: "network-menu-trigger",
+                c: "canvas-menu-trigger",
+                v: "view-menu-trigger",
+                d: "data-menu-trigger",
+              };
+              const triggerId = menuTriggers[key];
+              if (triggerId) {
+                event.preventDefault();
+                document.getElementById(triggerId)?.click();
+              }
+              return;
+            }
+            if (!event.ctrlKey || event.altKey) return;
+            const shortcutActions = {
+              n: "network-name-shortcut",
+              o: "network-load-shortcut",
+              s: "network-save-shortcut",
+              e: "network-export-shortcut",
+              r: "canvas-auto-route-shortcut",
+              "1": "view-builder-shortcut",
+              "2": "view-debug-network-shortcut",
+              "3": "view-catalog-shortcut",
+            };
+            if (event.shiftKey && key === "d") {
+              event.preventDefault();
+              document.getElementById("data-network-data-shortcut")?.click();
+              return;
+            }
+            if (event.shiftKey && key === "backspace") {
+              event.preventDefault();
+              document.getElementById("canvas-clear-shortcut")?.click();
+              return;
+            }
+            const actionId = !event.shiftKey ? shortcutActions[key] : null;
+            if (actionId) {
+              event.preventDefault();
+              document.getElementById(actionId)?.click();
+              return;
+            }
             if (key === "z" && event.shiftKey) {
               event.preventDefault();
               document.getElementById("canvas-redo-button")?.click();
@@ -1530,43 +1891,27 @@ def router_select() -> rx.Component:
     )
 
 
+def sidebar_toggle(label: str, checked: rx.Var[bool], on_change: Any) -> rx.Component:
+    """Render a compact sidebar visibility toggle."""
+    return rx.hstack(
+        rx.text(label, size="2"),
+        rx.spacer(),
+        rx.switch(checked=checked, on_change=on_change, size="1"),
+        align="center",
+        width="190px",
+        padding="4px 6px",
+    )
+
+
 def builder_tab() -> rx.Component:
     """Render the main schematic builder tab."""
     return rx.vstack(
         drag_payload_script(),
+        inspector_resize_script(),
         canvas_shortcuts_script(),
         rx.hstack(
-            palette_sidebar(),
+            rx.cond(State.show_left_sidebar, palette_sidebar(), rx.fragment()),
             rx.vstack(
-                rx.hstack(
-                    rx.input(
-                        value=State.network_name,
-                        on_change=State.set_network_name,
-                        placeholder="Network name",
-                        width="220px",
-                        class_name="network-name-input",
-                    ),
-                    rx.button(
-                        "Auto route",
-                        aria_label="Auto route network",
-                        title="Auto route network",
-                        on_click=State.auto_route_canvas,
-                        variant="soft",
-                    ),
-                    router_select(),
-                    builder_load_network_button(),
-                    save_loaded_network_button(),
-                    network_data_button(),
-                    export_dialog(),
-                    undo_redo_buttons(),
-                    clear_canvas_dialog(),
-                    justify="start",
-                    align="center",
-                    width="100%",
-                    padding="8px",
-                    border_bottom="1px solid var(--gray-5)",
-                    class_name="builder-toolbar",
-                ),
                 rx.box(
                     react_flow_canvas(
                         nodes=State.diagram_nodes,
@@ -1597,7 +1942,11 @@ def builder_tab() -> rx.Component:
                 spacing="0",
                 align="stretch",
             ),
-            right_sidebar(),
+            rx.cond(
+                State.show_right_sidebar,
+                rx.fragment(inspector_resize_handle(), right_sidebar()),
+                rx.fragment(),
+            ),
             spacing="0",
             align="stretch",
             width="100%",
@@ -1618,18 +1967,9 @@ def builder_tab() -> rx.Component:
     )
 
 
-def builder_load_network_button() -> rx.Component:
-    """Render the toolbar control for selecting a local PyPSA CSV folder."""
+def load_network_dialog() -> rx.Component:
+    """Render the controlled dialog for loading a local PyPSA CSV folder."""
     return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button(
-                rx.cond(State.is_loading_network, "Loading network...", "Load network"),
-                aria_label="Load PyPSA network directory",
-                title="Load a PyPSA CSV folder",
-                disabled=State.is_loading_network,
-                variant="soft",
-            )
-        ),
         rx.dialog.content(
             rx.vstack(
                 rx.dialog.title("Load network"),
@@ -1662,6 +2002,40 @@ def builder_load_network_button() -> rx.Component:
         ),
         open=State.is_load_dialog_open,
         on_open_change=State.set_load_dialog_open,
+    )
+
+
+def network_name_dialog() -> rx.Component:
+    """Render the controlled dialog for setting the network name."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Set network name"),
+                rx.dialog.description(
+                    "Enter the name used for display and exports.",
+                    size="2",
+                    color_scheme="gray",
+                ),
+                rx.input(
+                    value=State.network_name,
+                    on_change=State.set_network_name,
+                    placeholder="Network name",
+                    width="100%",
+                ),
+                rx.flex(
+                    rx.dialog.close(rx.button("Cancel", variant="soft")),
+                    rx.button("Done", on_click=State.close_network_name_dialog),
+                    spacing="2",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                align="stretch",
+            ),
+            max_width="460px",
+        ),
+        open=State.is_network_name_dialog_open,
+        on_open_change=State.set_network_name_dialog_open,
     )
 
 
@@ -1702,15 +2076,6 @@ def undo_redo_buttons() -> rx.Component:
 def clear_canvas_dialog() -> rx.Component:
     """Render the confirmation dialog for clearing the canvas."""
     return rx.alert_dialog.root(
-        rx.alert_dialog.trigger(
-            rx.button(
-                "Clear",
-                aria_label="Clear canvas",
-                title="Clear canvas",
-                variant="soft",
-                color_scheme="red",
-            )
-        ),
         rx.alert_dialog.content(
             rx.alert_dialog.title("Clear canvas"),
             rx.alert_dialog.description(
@@ -1725,7 +2090,7 @@ def clear_canvas_dialog() -> rx.Component:
                 rx.alert_dialog.action(
                     rx.button(
                         "Clear canvas",
-                        on_click=State.clear_canvas,
+                        on_click=State.confirm_clear_canvas,
                         color_scheme="red",
                     )
                 ),
@@ -1735,20 +2100,14 @@ def clear_canvas_dialog() -> rx.Component:
             ),
             max_width="460px",
         ),
+        open=State.is_clear_canvas_dialog_open,
+        on_open_change=State.set_clear_canvas_dialog_open,
     )
 
 
-def export_dialog() -> rx.Component:
-    """Render the export-to-folder toolbar control."""
+def export_network_dialog() -> rx.Component:
+    """Render the controlled dialog for exporting the network to a folder."""
     return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button(
-                "Export to folder",
-                aria_label="Export PyPSA network to folder",
-                title="Export PyPSA network to folder",
-                variant="soft",
-            )
-        ),
         rx.dialog.content(
             rx.vstack(
                 rx.dialog.title("Export network"),
@@ -1781,33 +2140,6 @@ def export_dialog() -> rx.Component:
         ),
         open=State.is_export_dialog_open,
         on_open_change=State.set_export_dialog_open,
-    )
-
-
-def save_loaded_network_button() -> rx.Component:
-    """Render a save button for networks loaded from a local CSV folder."""
-    return rx.cond(
-        State.save_network_folder != "",
-        rx.button(
-            rx.cond(State.operation_kind == "save", "Saving...", "Save network"),
-            aria_label="Save PyPSA network",
-            title=State.save_network_folder,
-            on_click=State.save_canvas_network_to_loaded_folder,
-            disabled=State.operation_kind == "save",
-            variant="solid",
-        ),
-        rx.fragment(),
-    )
-
-
-def network_data_button() -> rx.Component:
-    """Render the toolbar button for the network data dialog."""
-    return rx.button(
-        "Network Data",
-        aria_label="Open network data",
-        title="Open editable network data",
-        on_click=State.open_network_data_dialog,
-        variant="soft",
     )
 
 
@@ -2225,21 +2557,8 @@ def demo_styles() -> rx.Component:
           .app-footer :where(button, a, [role="button"]) {
             color: #f8fafc;
           }
-          .brand-title {
-            letter-spacing: 0;
-          }
           .app-content {
             background: var(--gray-4);
-          }
-          .app-tabs [role="tablist"] {
-            width: fit-content;
-            margin-bottom: 8px;
-            flex-shrink: 0;
-            border: 1px solid var(--gray-5);
-            border-radius: 8px;
-            padding: 2px;
-            background: color-mix(in srgb, var(--gray-3) 72%, var(--color-panel-solid));
-            box-shadow: 0 8px 22px color-mix(in srgb, var(--gray-12) 7%, transparent);
           }
           .builder-shell {
             border-color: color-mix(in srgb, var(--gray-7) 72%, transparent) !important;
@@ -2253,9 +2572,6 @@ def demo_styles() -> rx.Component:
             min-height: 46px;
             background: linear-gradient(180deg, var(--gray-4), var(--gray-3));
           }
-          .network-name-input input {
-            font-weight: 600;
-          }
           .palette-sidebar,
           .inspector-sidebar {
             background: var(--gray-4);
@@ -2265,6 +2581,15 @@ def demo_styles() -> rx.Component:
           }
           .inspector-sidebar {
             padding: 14px !important;
+          }
+          .inspector-resize-handle {
+            background: color-mix(in srgb, var(--gray-6) 42%, transparent);
+            border-left: 1px solid color-mix(in srgb, var(--gray-7) 60%, transparent);
+            border-right: 1px solid color-mix(in srgb, var(--gray-7) 60%, transparent);
+            transition: background 120ms ease;
+          }
+          .inspector-resize-handle:hover {
+            background: var(--accent-6);
           }
           .canvas-panel {
             background: var(--gray-3);
@@ -2574,12 +2899,326 @@ def upload_panel() -> rx.Component:
     )
 
 
+def pypsa_example_menu_item(example: rx.Var[ExampleNetworkOption]) -> rx.Component:
+    """Render one PyPSA example network submenu item."""
+    return rx.menu.item(
+        example["label"],
+        on_select=lambda: State.load_pypsa_example_network(example["path"]),
+    )
+
+
+def pypsa_example_menu_group(group: rx.Var[ExampleNetworkGroup]) -> rx.Component:
+    """Render one top-level PyPSA example directory submenu."""
+    return rx.menu.sub(
+        rx.menu.sub_trigger(group["label"]),
+        rx.menu.sub_content(
+            rx.foreach(
+                group["networks"],
+                pypsa_example_menu_item,
+            ),
+            align="start",
+            size="2",
+            variant="soft",
+        ),
+    )
+
+
+def network_menu() -> rx.Component:
+    """Render the top-level network file menu."""
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                "Network",
+                rx.icon("chevron-down", size=14),
+                aria_label="Network menu",
+                variant="ghost",
+                size="2",
+                title="Network menu (Alt+N)",
+                custom_attrs={"id": "network-menu-trigger"},
+            )
+        ),
+        rx.menu.content(
+            rx.menu.item(
+                "Set Name",
+                shortcut="Ctrl+N",
+                on_select=State.open_network_name_dialog,
+            ),
+            rx.menu.separator(),
+            rx.menu.item(
+                "New",
+                on_select=State.new_network,
+            ),
+            rx.menu.item(
+                "Load",
+                shortcut="Ctrl+O",
+                on_select=State.choose_network_directory_and_load,
+                disabled=State.is_loading_network,
+            ),
+            rx.menu.item(
+                "Save",
+                shortcut="Ctrl+S",
+                on_select=State.save_canvas_network_to_loaded_folder,
+                disabled=rx.cond(
+                    State.save_network_folder != "",
+                    State.operation_kind == "save",
+                    True,
+                ),
+            ),
+            rx.menu.item(
+                "Open in Jupyter",
+                on_select=State.open_network_in_jupyter,
+                disabled=State.operation_kind != "",
+            ),
+            rx.menu.sub(
+                rx.menu.sub_trigger("Pypsa Network Examples"),
+                rx.menu.sub_content(
+                    rx.foreach(
+                        State.pypsa_example_networks,
+                        pypsa_example_menu_group,
+                    ),
+                    align="start",
+                    size="2",
+                    variant="soft",
+                ),
+            ),
+            rx.menu.separator(),
+            rx.menu.item(
+                "Export",
+                shortcut="Ctrl+E",
+                on_select=State.choose_export_folder,
+                disabled=State.operation_kind == "export",
+            ),
+            align="start",
+            size="2",
+            variant="soft",
+        ),
+    )
+
+
+def canvas_menu() -> rx.Component:
+    """Render the top-level canvas menu."""
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                "Canvas",
+                rx.icon("chevron-down", size=14),
+                aria_label="Canvas menu",
+                variant="ghost",
+                size="2",
+                title="Canvas menu (Alt+C)",
+                custom_attrs={"id": "canvas-menu-trigger"},
+            )
+        ),
+        rx.menu.content(
+            rx.menu.item(
+                "Auto route",
+                shortcut="Ctrl+R",
+                on_select=State.auto_route_canvas,
+            ),
+            rx.box(
+                rx.hstack(
+                    rx.text("Router", size="2"),
+                    router_select(),
+                    spacing="2",
+                    align="center",
+                    padding="4px 6px",
+                )
+            ),
+            rx.menu.separator(),
+            rx.menu.item(
+                "Undo",
+                shortcut="Ctrl+Z",
+                on_select=State.undo_canvas,
+                disabled=rx.cond(State.can_undo_canvas, False, True),
+            ),
+            rx.menu.item(
+                "Redo",
+                shortcut="Ctrl+Shift+Z",
+                on_select=State.redo_canvas,
+                disabled=rx.cond(State.can_redo_canvas, False, True),
+            ),
+            rx.menu.separator(),
+            rx.menu.item(
+                "Clear",
+                shortcut="Ctrl+Shift+Backspace",
+                on_select=State.open_clear_canvas_dialog,
+                color_scheme="red",
+            ),
+            rx.menu.separator(),
+            rx.box(
+                sidebar_toggle(
+                    "Left sidebar",
+                    State.show_left_sidebar,
+                    State.set_show_left_sidebar,
+                ),
+                sidebar_toggle(
+                    "Right sidebar",
+                    State.show_right_sidebar,
+                    State.set_show_right_sidebar,
+                ),
+                padding="2px",
+            ),
+            align="start",
+            size="2",
+            variant="soft",
+        ),
+    )
+
+
+def view_menu() -> rx.Component:
+    """Render the top-level view selector menu."""
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                "View",
+                rx.icon("chevron-down", size=14),
+                aria_label="View menu",
+                variant="ghost",
+                size="2",
+                title="View menu (Alt+V)",
+                custom_attrs={"id": "view-menu-trigger"},
+            )
+        ),
+        rx.menu.content(
+            rx.menu.item(
+                "Builder",
+                shortcut="Ctrl+1",
+                on_select=State.show_builder_view,
+                disabled=State.active_view == "builder",
+            ),
+            rx.menu.item(
+                "Debug-Network",
+                shortcut="Ctrl+2",
+                on_select=State.show_debug_network_view,
+                disabled=State.active_view == "debug-network",
+            ),
+            rx.menu.item(
+                "Catalog",
+                shortcut="Ctrl+3",
+                on_select=State.show_catalog_view,
+                disabled=State.active_view == "catalog",
+            ),
+            align="start",
+            size="2",
+            variant="soft",
+        ),
+    )
+
+
+def data_menu() -> rx.Component:
+    """Render the top-level data menu."""
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                "Data",
+                rx.icon("chevron-down", size=14),
+                aria_label="Data menu",
+                variant="ghost",
+                size="2",
+                title="Data menu (Alt+D)",
+                custom_attrs={"id": "data-menu-trigger"},
+            )
+        ),
+        rx.menu.content(
+            rx.menu.item(
+                "Network Data",
+                shortcut="Ctrl+Shift+D",
+                on_select=State.open_network_data_dialog,
+            ),
+            align="start",
+            size="2",
+            variant="soft",
+        ),
+    )
+
+
+def shortcut_actions() -> rx.Component:
+    """Render hidden controls used by global keyboard shortcuts."""
+    return rx.box(
+        rx.button(
+            "Set Name",
+            id="network-name-shortcut",
+            on_click=State.open_network_name_dialog,
+        ),
+        rx.button(
+            "Load",
+            id="network-load-shortcut",
+            on_click=State.choose_network_directory_and_load,
+            disabled=State.is_loading_network,
+        ),
+        rx.button(
+            "Save",
+            id="network-save-shortcut",
+            on_click=State.save_canvas_network_to_loaded_folder,
+            disabled=rx.cond(
+                State.save_network_folder != "",
+                State.operation_kind == "save",
+                True,
+            ),
+        ),
+        rx.button(
+            "Export",
+            id="network-export-shortcut",
+            on_click=State.choose_export_folder,
+            disabled=State.operation_kind == "export",
+        ),
+        rx.button(
+            "Auto route",
+            id="canvas-auto-route-shortcut",
+            on_click=State.auto_route_canvas,
+        ),
+        rx.button(
+            "Undo",
+            id="canvas-undo-button",
+            on_click=State.undo_canvas,
+            disabled=rx.cond(State.can_undo_canvas, False, True),
+        ),
+        rx.button(
+            "Redo",
+            id="canvas-redo-button",
+            on_click=State.redo_canvas,
+            disabled=rx.cond(State.can_redo_canvas, False, True),
+        ),
+        rx.button(
+            "Clear",
+            id="canvas-clear-shortcut",
+            on_click=State.open_clear_canvas_dialog,
+        ),
+        rx.button(
+            "Builder",
+            id="view-builder-shortcut",
+            on_click=State.show_builder_view,
+        ),
+        rx.button(
+            "Debug-Network",
+            id="view-debug-network-shortcut",
+            on_click=State.show_debug_network_view,
+        ),
+        rx.button(
+            "Catalog",
+            id="view-catalog-shortcut",
+            on_click=State.show_catalog_view,
+        ),
+        rx.button(
+            "Network Data",
+            id="data-network-data-shortcut",
+            on_click=State.open_network_data_dialog,
+        ),
+        display="none",
+    )
+
+
 def menu_bar() -> rx.Component:
     """Render the compact application menu bar."""
     return rx.hstack(
-        rx.text("PyPSA Network Builder", weight="bold", size="3", class_name="brand-title"),
+        network_menu(),
+        canvas_menu(),
+        view_menu(),
+        data_menu(),
+        shortcut_actions(),
         rx.spacer(),
-        rx.text(State.network_name, size="2", color_scheme="gray"),
+        rx.text(State.network_name, size="2", color="#f8fafc"),
+        spacing="4",
         align="center",
         width="100%",
         height="44px",
@@ -3004,6 +3643,7 @@ class State(rx.State):
 
     sections: dict[str, list[ComponentRow]] = model_sections(NETWORK_MODEL)
     palette: dict[str, list[ComponentRow]] = palette_groups()
+    pypsa_example_networks: list[ExampleNetworkGroup] = PYPSA_EXAMPLE_NETWORKS
     diagram_nodes: list[DiagramNode] = []
     diagram_edges: list[DiagramEdge] = []
     diagram_model: DiagramModel = {"components": [], "connections": []}
@@ -3012,6 +3652,9 @@ class State(rx.State):
     canvas_bus_names: list[str] = []
     router_options: list[RouterOption] = ROUTER_OPTIONS
     selected_router_name: str = JS_ELK_ROUTER_NAME
+    active_view: str = "builder"
+    show_left_sidebar: bool = True
+    show_right_sidebar: bool = True
     route_version: int = 0
     selected_node_id: str = ""
     selected_component_name: str = ""
@@ -3028,14 +3671,16 @@ class State(rx.State):
     load_message: str = "Using empty PyPSA network defaults."
     load_error: str = ""
     loaded_source: str = ""
+    network_has_unsaved_changes: bool = False
     is_loading_network: bool = False
     network_load_status: str = ""
-    network_name: str = "PyPSA Network"
+    network_name: str = "Unnamed"
     network_file_path: str = ""
     save_network_folder: str = ""
     export_base_folder: str = str(Path.cwd() / "exports")
     export_message: str = ""
     export_error: str = ""
+    is_network_name_dialog_open: bool = False
     is_load_dialog_open: bool = False
     is_export_dialog_open: bool = False
     is_operation_dialog_open: bool = False
@@ -3044,6 +3689,7 @@ class State(rx.State):
     operation_kind: str = ""
     operation_is_error: bool = False
     operation_retry_load: bool = False
+    is_clear_canvas_dialog_open: bool = False
     is_other_component_dialog_open: bool = False
     other_component_dialog_title: str = ""
     other_component_dialog_kind: str = ""
@@ -3065,11 +3711,29 @@ class State(rx.State):
         """Reset catalog metadata to the empty PyPSA network defaults."""
         self.sections = model_sections(NETWORK_MODEL)
         self.loaded_source = ""
+        self.network_has_unsaved_changes = False
         self.save_network_folder = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
         self.is_network_data_dialog_open = False
         self.network_data_tabs = []
+
+    def _mark_network_dirty(self) -> None:
+        """Record that the in-memory network differs from the saved source."""
+        self.network_has_unsaved_changes = True
+
+    def _mark_network_saved(self) -> None:
+        """Clear dirty flags after loading or saving the current network."""
+        self.network_has_unsaved_changes = False
+        for table in [*self.other_csv_tables.values(), *self.time_series_tables.values()]:
+            table["dirty"] = False
+
+    def _has_unsaved_network_changes(self) -> bool:
+        """Return whether canvas or editable table state has unsaved changes."""
+        return self.network_has_unsaved_changes or any(
+            bool(table.get("dirty"))
+            for table in [*self.other_csv_tables.values(), *self.time_series_tables.values()]
+        )
 
     def open_other_component_dialog(self, title: str) -> None:
         """Open the placeholder dialog for an unsupported component."""
@@ -3424,6 +4088,7 @@ class State(rx.State):
                 return
             row["id"] = new_name
             table["dirty"] = True
+            self._mark_network_dirty()
             self._cascade_reference_rename(component_name, old_name, new_name)
             self._sync_diagram_model()
             self._sync_network_data_dialog()
@@ -3482,6 +4147,7 @@ class State(rx.State):
                     }
                 )
             table["dirty"] = True
+            self._mark_network_dirty()
             self._sync_network_data_dialog()
             return
 
@@ -3531,6 +4197,7 @@ class State(rx.State):
                     }
                 )
             table["dirty"] = True
+            self._mark_network_dirty()
         self.other_component_dialog_title = (
             f"{component_name}.{attr_name} - {pypsa_name}"
         )
@@ -3584,6 +4251,7 @@ class State(rx.State):
 
     def _push_canvas_history(self) -> None:
         """Record the current canvas state before a user-visible mutation."""
+        self._mark_network_dirty()
         self.canvas_undo_stack.append(self._canvas_snapshot())
         if len(self.canvas_undo_stack) > CANVAS_HISTORY_LIMIT:
             self.canvas_undo_stack = self.canvas_undo_stack[-CANVAS_HISTORY_LIMIT:]
@@ -3611,6 +4279,7 @@ class State(rx.State):
         if len(self.canvas_redo_stack) > CANVAS_HISTORY_LIMIT:
             self.canvas_redo_stack = self.canvas_redo_stack[-CANVAS_HISTORY_LIMIT:]
         self._restore_canvas_snapshot(snapshot)
+        self._mark_network_dirty()
         self._set_canvas_history_availability()
 
     def redo_canvas(self) -> None:
@@ -3622,6 +4291,7 @@ class State(rx.State):
         if len(self.canvas_undo_stack) > CANVAS_HISTORY_LIMIT:
             self.canvas_undo_stack = self.canvas_undo_stack[-CANVAS_HISTORY_LIMIT:]
         self._restore_canvas_snapshot(snapshot)
+        self._mark_network_dirty()
         self._set_canvas_history_availability()
 
     def update_other_table_row_id(self, row_index: int, value: str) -> None:
@@ -3638,6 +4308,7 @@ class State(rx.State):
                 row["id"] = str(value)
                 break
         table["dirty"] = True
+        self._mark_network_dirty()
         self.other_table_error = ""
         self._sync_other_table_dialog()
 
@@ -3657,6 +4328,7 @@ class State(rx.State):
                 if cell["column"] == str(column):
                     cell["value"] = str(value)
                     table["dirty"] = True
+                    self._mark_network_dirty()
                     self.other_table_error = ""
                     self._sync_other_table_dialog()
                     return
@@ -3670,6 +4342,7 @@ class State(rx.State):
             if str(column) not in table["columns"]:
                 table["columns"].append(str(column))
             table["dirty"] = True
+            self._mark_network_dirty()
             self.other_table_error = ""
             self._sync_other_table_dialog()
             return
@@ -3703,6 +4376,7 @@ class State(rx.State):
         )
         table["loaded"] = True
         table["dirty"] = True
+        self._mark_network_dirty()
         self.other_table_error = ""
         self._sync_other_table_dialog()
 
@@ -3719,6 +4393,7 @@ class State(rx.State):
             row for row in table["rows"] if row["row_index"] != int(row_index)
         ]
         table["dirty"] = True
+        self._mark_network_dirty()
         self.other_table_error = ""
         self._sync_other_table_dialog()
 
@@ -3767,6 +4442,7 @@ class State(rx.State):
                 self.other_table_error = "No editable table is open."
                 yield
                 return
+            self._mark_network_dirty()
             self.other_table_error = ""
             self._sync_other_table_dialog()
             yield rx.clear_selected_files(EDITABLE_CSV_UPLOAD_ID)
@@ -3833,6 +4509,7 @@ class State(rx.State):
             self.loaded_source = loaded_network.source or file_name
             self.other_csv_tables = {}
             self.time_series_tables = {}
+            self._mark_network_saved()
             self.load_message = f"Loaded {file_name}."
             self.load_error = ""
         except Exception as exc:
@@ -3856,6 +4533,7 @@ class State(rx.State):
             self.loaded_source = loaded_network.source or str(csv_folder)
             self.other_csv_tables = load_other_csv_tables(Path(csv_folder))
             self.time_series_tables = load_time_series_csv_tables(Path(csv_folder))
+            self._mark_network_saved()
             self.load_message = f"Loaded CSV directory with {len(files)} files."
             self.load_error = ""
         except Exception as exc:
@@ -3884,6 +4562,7 @@ class State(rx.State):
             self.network_name = str(network.name or file_name)
             print(network)
             self._populate_canvas_from_network(network, trigger_route=False)
+            self._mark_network_saved()
             self.load_message = f"Loaded {file_name} onto canvas."
             self.export_message = f"Loaded {file_name} onto canvas."
             self.load_error = ""
@@ -3891,6 +4570,57 @@ class State(rx.State):
         except Exception as exc:
             self.export_error = f"Could not load network onto canvas: {exc}"
             self.export_message = ""
+
+    async def load_pypsa_example_network(self, network_path: str):
+        """Load a bundled PyPSA example .nc network directly onto the canvas."""
+        path = Path(str(network_path)).expanduser()
+        file_name = path.name
+        try:
+            self.is_loading_network = True
+            self.is_operation_dialog_open = True
+            self.operation_title = "Loading network"
+            self.operation_status = f"Loading PyPSA example {file_name}..."
+            self.operation_kind = "load"
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            self.network_load_status = self.operation_status
+            self.export_message = ""
+            self.export_error = ""
+            yield
+
+            network, loaded_network = await asyncio.to_thread(load_network_file, path)
+            self.sections = model_sections(NETWORK_MODEL, loaded_network)
+            self.loaded_source = str(path)
+            self.save_network_folder = ""
+            self.other_csv_tables = {}
+            self.time_series_tables = {}
+            self.network_name = str(network.name or path.stem or "Unnamed")
+            self.operation_status = "Building canvas object..."
+            self.network_load_status = self.operation_status
+            yield
+
+            self._populate_canvas_from_network(network, trigger_route=False)
+            self._mark_network_saved()
+            self.load_message = f"Loaded {file_name} onto canvas."
+            self.export_message = f"Loaded {file_name} onto canvas."
+            self.load_error = ""
+            self.export_error = ""
+            self.is_loading_network = False
+            self.network_load_status = ""
+            self.is_operation_dialog_open = False
+            self.operation_title = ""
+            self.operation_status = ""
+            self.operation_kind = ""
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            yield rx.toast.success(f"Loaded PyPSA example {file_name}.")
+        except Exception as exc:
+            self.export_error = f"Could not load PyPSA example {file_name}: {exc}"
+            self.export_message = ""
+            self.is_loading_network = False
+            self.network_load_status = ""
+            self.show_operation_error("Could not load network", self.export_error)
+            yield
 
     async def load_network_folder_to_canvas(self, files: list[rx.UploadFile]):
         """Load an uploaded PyPSA CSV export folder directly onto the canvas."""
@@ -4130,6 +4860,7 @@ class State(rx.State):
         self.diagram_nodes = diagram_nodes
         self.component_counters = component_counters
         self._sync_diagram_model()
+        self._mark_network_saved()
 
     def _network_import_order(self) -> list[str]:
         """Return component list names in bus, branch, component import order."""
@@ -4207,6 +4938,36 @@ class State(rx.State):
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
 
+    def set_clear_canvas_dialog_open(self, value: bool) -> None:
+        """Update whether the clear canvas confirmation is open."""
+        self.is_clear_canvas_dialog_open = value
+
+    def open_clear_canvas_dialog(self) -> None:
+        """Open the clear canvas confirmation."""
+        self.is_clear_canvas_dialog_open = True
+
+    def confirm_clear_canvas(self) -> None:
+        """Clear the canvas and close the confirmation."""
+        self.clear_canvas()
+        self.is_clear_canvas_dialog_open = False
+
+    def new_network(self) -> None:
+        """Start a new unnamed network from an empty canvas."""
+        self.clear_canvas()
+        self._clear_canvas_history()
+        self.network_name = "Unnamed"
+        self.loaded_source = ""
+        self.save_network_folder = ""
+        self.other_csv_tables = {}
+        self.time_series_tables = {}
+        self.load_message = "Using empty PyPSA network defaults."
+        self.load_error = ""
+        self.export_message = ""
+        self.export_error = ""
+        self.network_has_unsaved_changes = False
+        if self.is_network_data_dialog_open:
+            self._sync_network_data_dialog()
+
     def reset_builder_on_load(self) -> None:
         """Reset transient builder state when the app page is loaded."""
         self.clear_canvas()
@@ -4214,6 +4975,7 @@ class State(rx.State):
         self.load_message = "Using empty PyPSA network defaults."
         self.load_error = ""
         self.loaded_source = ""
+        self.network_has_unsaved_changes = False
         self.save_network_folder = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
@@ -4221,6 +4983,7 @@ class State(rx.State):
         self.network_load_status = ""
         self.export_message = ""
         self.export_error = ""
+        self.is_network_name_dialog_open = False
         self.is_load_dialog_open = False
         self.is_export_dialog_open = False
         self.is_operation_dialog_open = False
@@ -4229,6 +4992,7 @@ class State(rx.State):
         self.operation_kind = ""
         self.operation_is_error = False
         self.operation_retry_load = False
+        self.is_clear_canvas_dialog_open = False
         self.is_network_data_dialog_open = False
         self.network_data_tabs = []
 
@@ -4261,12 +5025,94 @@ class State(rx.State):
         self.operation_is_error = True
         self.operation_retry_load = retry_load
 
+    def _current_saved_network_path(self) -> Path | None:
+        """Return the current on-disk network source, if one exists."""
+        source_text = (self.save_network_folder or self.loaded_source).strip()
+        if not source_text:
+            return None
+        return Path(source_text).expanduser()
+
+    async def open_network_in_jupyter(self):
+        """Create and open a JupyterLab notebook for the current saved network."""
+        network_path = self._current_saved_network_path()
+        if network_path is None:
+            self.export_error = "Save, export, or load a network before opening Jupyter."
+            self.export_message = ""
+            self.show_operation_error("Could not open Jupyter", self.export_error)
+            yield
+            return
+        if self._has_unsaved_network_changes():
+            self.export_error = (
+                "Save or export the current network before opening it in Jupyter."
+            )
+            self.export_message = ""
+            self.show_operation_error("Could not open Jupyter", self.export_error)
+            yield
+            return
+        if not await asyncio.to_thread(network_path.exists):
+            self.export_error = f"Network path no longer exists: {network_path}"
+            self.export_message = ""
+            self.show_operation_error("Could not open Jupyter", self.export_error)
+            yield
+            return
+
+        self.is_operation_dialog_open = True
+        self.operation_title = "Opening Jupyter"
+        self.operation_status = "Creating notebook and starting JupyterLab..."
+        self.operation_kind = "jupyter"
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        self.export_message = ""
+        self.export_error = ""
+        yield
+
+        try:
+            notebook_path = await asyncio.to_thread(
+                create_jupyter_network_notebook,
+                network_path,
+            )
+            url = await asyncio.to_thread(jupyter_lab_notebook_url, notebook_path)
+            self.is_operation_dialog_open = False
+            self.operation_title = ""
+            self.operation_status = ""
+            self.operation_kind = ""
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            self.export_message = f"Opened Jupyter notebook {notebook_path}."
+            self.export_error = ""
+            yield rx.redirect(url, is_external=True)
+        except Exception as exc:
+            self.export_error = f"Could not open Jupyter: {exc}"
+            self.export_message = ""
+            self.show_operation_error("Could not open Jupyter", self.export_error)
+            yield
+
     def set_selected_router_name(self, value: str) -> None:
         """Select the router used by the Auto route button."""
         router_name = str(value)
         available_names = {option["name"] for option in self.router_options}
         if router_name in available_names:
             self.selected_router_name = router_name
+
+    def set_show_left_sidebar(self, value: bool) -> None:
+        """Update whether the left palette sidebar is visible."""
+        self.show_left_sidebar = bool(value)
+
+    def set_show_right_sidebar(self, value: bool) -> None:
+        """Update whether the right selection sidebar is visible."""
+        self.show_right_sidebar = bool(value)
+
+    def show_builder_view(self) -> None:
+        """Show the schematic builder view."""
+        self.active_view = "builder"
+
+    def show_debug_network_view(self) -> None:
+        """Show the debug network object view."""
+        self.active_view = "debug-network"
+
+    def show_catalog_view(self) -> None:
+        """Show the component catalog view."""
+        self.active_view = "catalog"
 
     def _router_label(self, router_name: str) -> str:
         """Return the display label for a router name."""
@@ -4428,7 +5274,19 @@ class State(rx.State):
 
     def set_network_name(self, value: str) -> None:
         """Update the PyPSA network name used for export."""
-        self.network_name = value
+        self.network_name = str(value).strip() or "Unnamed"
+
+    def set_network_name_dialog_open(self, value: bool) -> None:
+        """Update whether the network name dialog is open."""
+        self.is_network_name_dialog_open = value
+
+    def open_network_name_dialog(self) -> None:
+        """Open the network name dialog."""
+        self.is_network_name_dialog_open = True
+
+    def close_network_name_dialog(self) -> None:
+        """Close the network name dialog."""
+        self.is_network_name_dialog_open = False
 
     def set_network_file_path(self, value: str) -> None:
         """Store a user-entered network CSV folder path."""
@@ -4591,6 +5449,8 @@ class State(rx.State):
                 extra_csv_tables,
             )
             self.loaded_source = str(export_path)
+            self.save_network_folder = str(export_path)
+            self._mark_network_saved()
             self.export_message = f"Saved network to {export_path}."
             self.export_error = ""
             self.is_operation_dialog_open = False
@@ -4636,6 +5496,9 @@ class State(rx.State):
                 self.save_network_folder or None,
                 extra_csv_tables,
             )
+            self.loaded_source = str(export_path)
+            self.save_network_folder = str(export_path)
+            self._mark_network_saved()
             self.operation_status = "Network saved."
             self.export_message = ""
             self.export_error = ""
@@ -4788,6 +5651,7 @@ class State(rx.State):
         )
         table["loaded"] = True
         table["dirty"] = True
+        self._mark_network_dirty()
         self.other_table_error = ""
         self._sync_other_table_dialog()
         return True
@@ -4992,6 +5856,7 @@ class State(rx.State):
                     if node["id"] == self.selected_node_id:
                         self.selected_attr_rows = self._selected_attr_rows_for_node(node)
         if changed and self.operation_kind != "load":
+            self._mark_network_dirty()
             self.canvas_undo_stack.append(original_snapshot)
             if len(self.canvas_undo_stack) > CANVAS_HISTORY_LIMIT:
                 self.canvas_undo_stack = self.canvas_undo_stack[-CANVAS_HISTORY_LIMIT:]
@@ -5219,48 +6084,39 @@ def index() -> rx.Component:
         demo_styles(),
         rx.toast.provider(),
         operation_dialog(),
+        clear_canvas_dialog(),
+        network_name_dialog(),
+        load_network_dialog(),
+        export_network_dialog(),
         other_component_dialog(),
         network_data_dialog(),
         menu_bar(),
         rx.box(
-            rx.tabs.root(
-                rx.tabs.list(
-                    rx.tabs.trigger("Builder", value="builder"),
-                    rx.tabs.trigger("Debug-Network", value="debug-network"),
-                    rx.tabs.trigger("Catalog", value="catalog"),
-                    class_name="tab-list",
-                    flex_shrink="0",
-                ),
-                rx.tabs.content(
-                    builder_tab(),
-                    value="builder",
-                    flex="1",
-                    min_height="0",
-                    display="flex",
-                    flex_direction="column",
-                    overflow="hidden",
-                ),
-                rx.tabs.content(
+            rx.cond(
+                State.active_view == "debug-network",
+                rx.box(
                     debug_network_tab(),
-                    value="debug-network",
-                    flex="1",
+                    height="100%",
                     min_height="0",
                     overflow_y="auto",
                 ),
-                rx.tabs.content(
-                    catalog_tab(),
-                    value="catalog",
-                    flex="1",
-                    min_height="0",
-                    overflow_y="auto",
+                rx.cond(
+                    State.active_view == "catalog",
+                    rx.box(
+                        catalog_tab(),
+                        height="100%",
+                        min_height="0",
+                        overflow_y="auto",
+                    ),
+                    rx.box(
+                        builder_tab(),
+                        height="100%",
+                        min_height="0",
+                        display="flex",
+                        flex_direction="column",
+                        overflow="hidden",
+                    ),
                 ),
-                default_value="builder",
-                width="100%",
-                height="100%",
-                display="flex",
-                flex_direction="column",
-                min_height="0",
-                class_name="app-tabs",
             ),
             flex="1",
             min_height="0",

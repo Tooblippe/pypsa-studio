@@ -1,0 +1,119 @@
+Running scraped cell 1/18
+Running scraped cell 2/18
+Running scraped cell 3/18
+Running scraped cell 4/18
+Running scraped cell 5/18
+Running scraped cell 6/18
+<generation-investment-screening-curve:cell-6>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['bus'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-z4utmfac has 7010 rows; 3006 cols; 12015 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [2e-03, 2e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+00, 1e+03]
+Presolving model
+3000 rows, 3002 cols, 7000 nonzeros 0s
+Dependent equations search running on 1000 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+3000 rows, 3002 cols, 7000 nonzeros 0s
+Presolve reductions: rows 3000(-4010); columns 3002(-4); nonzeros 7000(-5015) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0     0.0000000000e+00 Pr: 1000(500500) 0.0s
+       1512     1.4706193806e+04 Pr: 0(0) 0.0s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-z4utmfac
+Model status        : Optimal
+Simplex   iterations: 1512
+Objective value     :  1.4706193806e+04
+P-D objective error :  8.2250162361e-15
+HiGHS run time      :          0.02
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 3006 primals, 7010 duals
+Objective: 1.47e+04
+Solver: highs
+Runtime: 0.02s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-ext-p-lower, Generator-ext-p-upper were not assigned to the network.
+Running scraped cell 7/18
+Running scraped cell 8/18
+Running scraped cell 9/18
+Running scraped cell 10/18
+Running scraped cell 11/18
+Running scraped cell 12/18
+Running scraped cell 13/18
+Running scraped cell 14/18
+<generation-investment-screening-curve:cell-14>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['bus'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following sub_networks have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['0'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-0psm6i_b has 7007 rows; 3003 cols; 9009 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [2e-03, 1e+00]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+00, 1e+03]
+Presolving model
+998 rows, 1996 cols, 1996 nonzeros 0s
+Dependent equations search running on 9 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+9 rows, 27 cols, 27 nonzeros 0s
+Presolve reductions: rows 9(-6998); columns 27(-2976); nonzeros 27(-8982) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0     2.2966633367e+03 Pr: 9(4545) 0.0s
+          9     2.3061938062e+03 Pr: 0(0) 0.0s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          9     2.2993206793e+03 Pr: 1(990) 0.0s
+         11     2.3061938062e+03 Pr: 0(0) 0.0s
+Required 2 simplex iterations after postsolve
+
+Model name          : linopy-problem-0psm6i_b
+Model status        : Optimal
+Simplex   iterations: 11
+Objective value     :  2.3061938062e+03
+P-D objective error :  7.6984140697e-14
+HiGHS run time      :          0.01
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 3003 primals, 7007 duals
+Objective: 2.31e+03
+Solver: highs
+Runtime: 0.01s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper were not assigned to the network.
+Running scraped cell 15/18
+Running scraped cell 16/18
+Running scraped cell 17/18
+Running scraped cell 18/18
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/generation-investment-screening-curve/generation-investment-screening-curve.nc contains: generators, loads, buses, sub_networks
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/generation-investment-screening-curve/generation-investment-screening-curve.nc

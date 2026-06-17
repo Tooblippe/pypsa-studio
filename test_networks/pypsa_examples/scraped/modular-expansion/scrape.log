@@ -1,0 +1,13 @@
+Running scraped cell 1/3
+INFO:pypsa.network.io:Imported network 'Model-Energy' has buses, carriers, generators, links, loads, storage_units, stores
+<modular-expansion:cell-1>:18: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Gurobi solver
+WARNING: skipped failed cell 1: AssertionError: Solver gurobi not installed
+Running scraped cell 2/3
+<modular-expansion:cell-2>:3: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Gurobi solver
+WARNING: skipped failed cell 2: AssertionError: Solver gurobi not installed
+Running scraped cell 3/3
+WARNING: skipped failed cell 3: TypeError: no numeric data to plot
+INFO:pypsa.network.io:Exported network 'Model-Energy' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/modular-expansion/modular-expansion.nc contains: stores, buses, loads, links, carriers, storage_units, generators
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/modular-expansion/modular-expansion.nc

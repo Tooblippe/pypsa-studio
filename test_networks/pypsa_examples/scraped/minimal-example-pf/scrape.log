@@ -1,0 +1,12 @@
+Running scraped cell 1/9
+Running scraped cell 2/9
+Running scraped cell 3/9
+Running scraped cell 4/9
+Running scraped cell 5/9
+Running scraped cell 6/9
+INFO:pypsa.network.power_flow:Performing non-linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x1120fa900> for snapshots Index(['now'], dtype='str', name='snapshot')
+Running scraped cell 7/9
+Running scraped cell 8/9
+Running scraped cell 9/9
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/minimal-example-pf/minimal-example-pf.nc contains: sub_networks, lines, buses, generators, loads
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/minimal-example-pf/minimal-example-pf.nc

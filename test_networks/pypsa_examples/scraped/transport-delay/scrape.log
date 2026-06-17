@@ -1,0 +1,238 @@
+Running scraped cell 1/16
+INFO:pypsa.consistency:Sanitizing network...
+INFO:pypsa.components._types.carriers:Adding 1 missing carriers: ['AC']
+INFO:pypsa.components._types.carriers:Assigned colors to 1 carriers using 'tab10' palette.
+INFO:pypsa.consistency:Network sanitization complete.
+Running scraped cell 2/16
+<transport-delay:cell-2>:12: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-txlghi3r has 64 rows; 24 cols; 80 nonzeros
+Coefficient ranges:
+  Matrix  [9e-01, 1e+00]
+  Cost    [5e+00, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+01, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-64); columns 0(-24); nonzeros 0(-80) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-txlghi3r
+Model status        : Optimal
+Objective value     :  1.3157894737e+03
+P-D objective error :  8.6369176381e-17
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 24 primals, 64 duals
+Objective: 1.32e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 3/16
+Running scraped cell 4/16
+<transport-delay:cell-4>:3: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-qu7jp3v5 has 64 rows; 24 cols; 78 nonzeros
+Coefficient ranges:
+  Matrix  [9e-01, 1e+00]
+  Cost    [5e+00, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+01, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-64); columns 0(-24); nonzeros 0(-78) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-qu7jp3v5
+Model status        : Optimal
+Objective value     :  4.3052631579e+03
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 24 primals, 64 duals
+Objective: 4.31e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 5/16
+Running scraped cell 6/16
+<transport-delay:cell-6>:22: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-s4yvftmu has 88 rows; 32 cols; 112 nonzeros
+Coefficient ranges:
+  Matrix  [9e-01, 1e+00]
+  Cost    [5e+00, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [5e+00, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-88); columns 0(-32); nonzeros 0(-112) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-s4yvftmu
+Model status        : Optimal
+Objective value     :  1.4487426901e+04
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 32 primals, 88 duals
+Objective: 1.45e+04
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 7/16
+Running scraped cell 8/16
+<transport-delay:cell-8>:19: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-gi4ko1zm has 64 rows; 24 cols; 80 nonzeros
+Coefficient ranges:
+  Matrix  [9e-01, 1e+00]
+  Cost    [5e+00, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+01, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-64); columns 0(-24); nonzeros 0(-80) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-gi4ko1zm
+Model status        : Optimal
+Objective value     :  1.3157894737e+03
+P-D objective error :  8.6369176381e-17
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 24 primals, 64 duals
+Objective: 1.32e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 9/16
+Running scraped cell 10/16
+Running scraped cell 11/16
+<transport-delay:cell-11>:5: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.components._types.mixin.multiports:Delay 3 does not align exactly with snapshot weighting boundaries and will be rounded to the nearest snapshot boundary.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-2loqoeee has 64 rows; 24 cols; 80 nonzeros
+Coefficient ranges:
+  Matrix  [9e-01, 1e+00]
+  Cost    [5e+00, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+01, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-64); columns 0(-24); nonzeros 0(-80) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-2loqoeee
+Model status        : Optimal
+Objective value     :  1.3157894737e+03
+P-D objective error :  1.7273835276e-16
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 24 primals, 64 duals
+Objective: 1.32e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+WARNING:pypsa.components._types.mixin.multiports:Delay 3 does not align exactly with snapshot weighting boundaries and will be rounded to the nearest snapshot boundary.
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 12/16
+WARNING:pypsa.components._types.mixin.multiports:Delay 3 does not align exactly with snapshot weighting boundaries and will be rounded to the nearest snapshot boundary.
+Running scraped cell 13/16
+Running scraped cell 14/16
+<transport-delay:cell-14>:3: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.components._types.mixin.multiports:Delay 5 does not align exactly with snapshot weighting boundaries and will be rounded to the nearest snapshot boundary.
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.01s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-pzfktl_g has 64 rows; 24 cols; 80 nonzeros
+Coefficient ranges:
+  Matrix  [9e-01, 1e+00]
+  Cost    [5e+00, 8e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e+01, 1e+02]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-64); columns 0(-24); nonzeros 0(-80) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-pzfktl_g
+Model status        : Optimal
+Objective value     :  1.3157894737e+03
+P-D objective error :  8.6369176381e-17
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 24 primals, 64 duals
+Objective: 1.32e+03
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+WARNING:pypsa.components._types.mixin.multiports:Delay 5 does not align exactly with snapshot weighting boundaries and will be rounded to the nearest snapshot boundary.
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Link-fix-p-lower, Link-fix-p-upper were not assigned to the network.
+Running scraped cell 15/16
+WARNING:pypsa.components._types.mixin.multiports:Delay 5 does not align exactly with snapshot weighting boundaries and will be rounded to the nearest snapshot boundary.
+Running scraped cell 16/16
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/transport-delay/transport-delay.nc contains: carriers, buses, loads, sub_networks, links, generators
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/transport-delay/transport-delay.nc

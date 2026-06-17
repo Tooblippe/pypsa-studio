@@ -1,0 +1,103 @@
+Running scraped cell 1/30
+Running scraped cell 2/30
+INFO:pypsa.network.io:Retrieving network data from https://tubcloud.tu-berlin.de/s/pzytNg9gtkgPpXc/download/network-cem.nc.
+WARNING:pypsa.network.io:Importing network from PyPSA version v0.27.1 while current version is v1.2.3. Read the release notes at `https://go.pypsa.org/release-notes` to prepare your network for import.
+INFO:pypsa.network.io:Imported network '' has buses, carriers, generators, global_constraints, loads, storage_units
+Running scraped cell 3/30
+Running scraped cell 4/30
+Running scraped cell 5/30
+Running scraped cell 6/30
+Running scraped cell 7/30
+Running scraped cell 8/30
+Running scraped cell 9/30
+Running scraped cell 10/30
+Running scraped cell 11/30
+Running scraped cell 12/30
+Running scraped cell 13/30
+Running scraped cell 14/30
+Running scraped cell 15/30
+Running scraped cell 16/30
+Running scraped cell 17/30
+Running scraped cell 18/30
+Running scraped cell 19/30
+Running scraped cell 20/30
+Running scraped cell 21/30
+Running scraped cell 22/30
+Running scraped cell 23/30
+Running scraped cell 24/30
+Running scraped cell 25/30
+Running scraped cell 26/30
+Running scraped cell 27/30
+Running scraped cell 28/30
+<sector-coupling-single-node:cell-28>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['electricity', 'hydrogen', 'heat', 'gas', 'EV'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following loads have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['hydrogen demand', 'heat demand', 'EVa demand'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following links have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['electrolysis', 'fuel cell', 'heat pump', 'resistive heater', 'CHP',
+       'EV charger', 'V2G'],
+      dtype='str', name='name')
+WARNING:pypsa.consistency:Encountered nan's in static data for columns ['efficiency2'] of component 'Link'.
+WARNING:pypsa.consistency:The following stores have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['hydrogen storage', 'gas storage', 'EV DSM'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io:Writing objective.
+
+Writing constraints.:   0%|[38;2;128;191;255m          [0m| 0/23 [00:00<?, ?it/s]
+Writing constraints.: 100%|[38;2;128;191;255m██████████[0m| 23/23 [00:00<00:00, 397.18it/s]
+
+Writing continuous variables.:   0%|[38;2;128;191;255m          [0m| 0/11 [00:00<?, ?it/s]
+Writing continuous variables.: 100%|[38;2;128;191;255m██████████[0m| 11/11 [00:00<00:00, 1156.64it/s]
+INFO:linopy.io: Writing time: 0.08s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-8egfztdb has 94181 rows; 43811 cols; 185110 nonzeros
+Coefficient ranges:
+  Matrix  [1e-04, 6e+00]
+  Cost    [4e-02, 3e+05]
+  Bound   [0e+00, 0e+00]
+  RHS     [2e+03, 1e+08]
+WARNING: Problem has some excessively large row bounds
+WARNING:    Consider scaling the    bounds by 1e-2, or setting the user_bound_scale option to -7
+Presolving model
+47129 rows, 42760 cols, 137007 nonzeros 0s
+Dependent equations search running on 13140 equations with time limit of 1000.00s
+Dependent equations search removed 0 rows and 0 nonzeros in 0.00s (limit = 1000.00s)
+40560 rows, 36191 cols, 123869 nonzeros 0s
+Presolve reductions: rows 40560(-53621); columns 36191(-7620); nonzeros 123869(-61241) 
+Solving the presolved LP
+Using dual simplex solver
+  Iteration        Objective     Infeasibilities num(sum)
+          0     0.0000000000e+00 Ph1: 0(0) 0.1s
+      24289     4.1970511899e+10 Pr: 8379(1.89505e+10); Du: 0(5.62514e-07) 5.2s
+      31844     1.1725194623e+11 Pr: 4758(1.33033e+09); Du: 0(3.80817e-07) 10.4s
+      38481     1.3943950355e+11 Pr: 7381(7.36991e+09); Du: 0(2.62217e-07) 15.7s
+      41906     1.4282398309e+11 Pr: 0(0); Du: 0(1.55675e-11) 18.7s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-8egfztdb
+Model status        : Optimal
+Simplex   iterations: 41906
+Objective value     :  1.4282398309e+11
+P-D objective error :  2.6709080528e-15
+HiGHS run time      :         18.79
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 43811 primals, 94181 duals
+Objective: 1.43e+11
+Solver: highs
+Runtime: 18.79s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-ext-p-lower, Generator-ext-p-upper, Link-fix-p-lower, Link-fix-p-upper, Link-ext-p-lower, Link-ext-p-upper, Store-fix-e-lower, Store-fix-e-upper, Store-ext-e-lower, Store-ext-e-upper, StorageUnit-ext-p_dispatch-lower, StorageUnit-ext-p_dispatch-upper, StorageUnit-ext-p_store-lower, StorageUnit-ext-p_store-upper, StorageUnit-ext-state_of_charge-lower, StorageUnit-ext-state_of_charge-upper, StorageUnit-energy_balance, Store-energy_balance were not assigned to the network.
+Running scraped cell 29/30
+Running scraped cell 30/30
+WARNING: skipped failed cell 30: AttributeError: 'MultiIndex' object has no attribute 'freq'
+INFO:pypsa.network.io:Exported network '' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/sector-coupling-single-node/sector-coupling-single-node.nc contains: links, carriers, storage_units, generators, loads, buses, sub_networks, stores
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/sector-coupling-single-node/sector-coupling-single-node.nc

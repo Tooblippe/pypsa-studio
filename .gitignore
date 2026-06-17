@@ -1,6 +1,7 @@
 assets/external/
 .web
 .states
+.jupyter
 *.db
 .venv/
 __pycache__/

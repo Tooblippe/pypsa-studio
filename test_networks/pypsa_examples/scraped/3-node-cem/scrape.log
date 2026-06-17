@@ -1,0 +1,58 @@
+Running scraped cell 1/23
+WARNING: skipped failed cell 1: ModuleNotFoundError: No module named 'cartopy'
+Running scraped cell 2/23
+Running scraped cell 3/23
+Running scraped cell 4/23
+                       VIC            SA           NSW       
+                    onwind  solar onwind  solar onwind  solar
+2011-01-01 00:00:00  0.214  0.504  0.239  0.401  0.141  0.515
+2011-01-01 01:00:00  0.197  0.588  0.244  0.504  0.098  0.597
+2011-01-01 02:00:00  0.215  0.613  0.232  0.568  0.068  0.644
+                          VIC        SA       NSW
+snapshot                                         
+2011-01-01 00:00:00  5113.930  1358.385  9357.435
+2011-01-01 01:00:00  5147.425  1383.295  9635.540
+2011-01-01 02:00:00  5079.465  1387.215  9832.175
+Running scraped cell 5/23
+Running scraped cell 6/23
+WARNING: skipped failed cell 6: NameError: name 'annuity' is not defined
+Running scraped cell 7/23
+Running scraped cell 8/23
+WARNING: skipped failed cell 8: NameError: name 'RESOLUTION' is not defined
+Running scraped cell 9/23
+WARNING: skipped failed cell 9: NameError: name 'RESOLUTION' is not defined
+Series([], dtype: float64)
+Running scraped cell 10/23
+WARNING: skipped failed cell 10: NameError: name 'ccrs' is not defined
+Running scraped cell 11/23
+WARNING: skipped failed cell 11: NameError: name 'annuity' is not defined
+Running scraped cell 12/23
+<3-node-cem:cell-12>:13: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have no attached components, which can break the lopf: {'VIC hydrogen', 'NSW hydrogen', 'SA hydrogen'}
+WARNING: skipped failed cell 12: AttributeError: Can only use .str accessor with string values, not integer
+Running scraped cell 13/23
+WARNING: skipped failed cell 13: NameError: name 'RESOLUTION' is not defined
+Series([], dtype: float64)
+Running scraped cell 14/23
+WARNING: skipped failed cell 14: KeyError: "Index(['VIC', 'SA', 'NSW'], dtype='str') not in index"
+Running scraped cell 15/23
+WARNING: skipped failed cell 15: KeyError: 'VIC'
+Running scraped cell 16/23
+WARNING: skipped failed cell 16: NameError: name 'annuity' is not defined
+Running scraped cell 17/23
+<3-node-cem:cell-17>:1: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have no attached components, which can break the lopf: {'VIC hydrogen', 'NSW hydrogen', 'SA hydrogen'}
+WARNING: skipped failed cell 17: AttributeError: Can only use .str accessor with string values, not integer
+Running scraped cell 18/23
+WARNING: skipped failed cell 18: NameError: name 'RESOLUTION' is not defined
+Series([], dtype: float64)
+Running scraped cell 19/23
+WARNING: skipped failed cell 19: KeyError: "Index(['VIC', 'SA', 'NSW'], dtype='str') not in index"
+Running scraped cell 20/23
+Running scraped cell 21/23
+<3-node-cem:cell-21>:1: Pandas4Warning: 'd' is deprecated and will be removed in a future version, please use 'D' instead.
+WARNING: skipped failed cell 21: TypeError: no numeric data to plot
+Running scraped cell 22/23
+Running scraped cell 23/23
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/3-node-cem/3-node-cem.nc contains: buses, generators, carriers, loads
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/3-node-cem/3-node-cem.nc

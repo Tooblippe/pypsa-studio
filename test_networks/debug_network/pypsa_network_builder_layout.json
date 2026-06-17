@@ -19,8 +19,8 @@
       "component": "buses",
       "id": "buse_3",
       "name": "vbus",
-      "x": 423.1862627087359,
-      "y": 286.9156848583817
+      "x": 393.3333333333333,
+      "y": 283.33333333333337
     },
     {
       "component": "buses",
@@ -40,8 +40,8 @@
       "component": "buses",
       "id": "buse_6",
       "name": "buse_6",
-      "x": 647.4529133259501,
-      "y": 688.3882343500323
+      "x": 577.0,
+      "y": 686.0000000000001
     },
     {
       "component": "buses",
@@ -166,15 +166,15 @@
       "component": "generators",
       "id": "generator_1",
       "name": "generator_1",
-      "x": 24.0,
-      "y": 665.8000000000002
+      "x": -138.29164705882354,
+      "y": 360.1244705882355
     },
     {
       "component": "global_constraints",
       "id": "global_constraint_1",
       "name": "global_constraint_1",
-      "x": 491.41171750161027,
-      "y": 456.38037988375214
+      "x": 372.0,
+      "y": 425.3333333333334
     },
     {
       "component": "global_constraints",
@@ -229,8 +229,8 @@
       "component": "storage_units",
       "id": "storage_unit_2",
       "name": "storage_unit_2",
-      "x": 637.7529855484863,
-      "y": 458.38037988375214
+      "x": 750.0,
+      "y": 427.3333333333334
     },
     {
       "component": "stores",

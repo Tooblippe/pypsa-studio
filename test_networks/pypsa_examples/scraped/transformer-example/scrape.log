@@ -1,0 +1,64 @@
+Running scraped cell 1/10
+Running scraped cell 2/10
+Running scraped cell 3/10
+INFO:pypsa.network.power_flow:Performing linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112bfa3c0> for snapshot(s) Index(['now'], dtype='str', name='snapshot')
+INFO:pypsa.network.power_flow:Performing non-linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112adf750> for snapshots Index(['now'], dtype='str', name='snapshot')
+Running scraped cell 4/10
+INFO:pypsa.network.power_flow:Performing linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112adf750> for snapshot(s) Index(['now'], dtype='str', name='snapshot')
+INFO:pypsa.network.power_flow:Performing non-linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112ad2b10> for snapshots Index(['now'], dtype='str', name='snapshot')
+Running scraped cell 5/10
+INFO:pypsa.network.power_flow:Performing linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112ad2b10> for snapshot(s) Index(['now'], dtype='str', name='snapshot')
+INFO:pypsa.network.power_flow:Performing non-linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112b6b0b0> for snapshots Index(['now'], dtype='str', name='snapshot')
+Running scraped cell 6/10
+Running scraped cell 7/10
+INFO:pypsa.network.power_flow:Performing linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112b579b0> for snapshot(s) Index(['now'], dtype='str', name='snapshot')
+INFO:pypsa.network.power_flow:Performing non-linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x112b579b0> for snapshots Index(['now'], dtype='str', name='snapshot')
+Running scraped cell 8/10
+Running scraped cell 9/10
+INFO:pypsa.network.power_flow:Performing linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x10dd64a50> for snapshot(s) Index(['now'], dtype='str', name='snapshot')
+INFO:pypsa.network.power_flow:Performing non-linear load-flow on AC sub-network <pypsa.networks.SubNetwork object at 0x10dd65b50> for snapshots Index(['now'], dtype='str', name='snapshot')
+Running scraped cell 10/10
+<transformer-example:cell-10>:3: FutureWarning: The default value of `include_objective_constant` will change from True to False in version 2.0. Set `include_objective_constant` explicitly to suppress this warning. Using False improves LP numerical conditioning by not including the objective constant as a variable.
+WARNING:pypsa.consistency:The following buses have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['MV bus', 'LV1 bus', 'LV2 bus'], dtype='str', name='name')
+WARNING:pypsa.consistency:Encountered nan's in varying data 'p' for columns ['External Grid'] of component 'Generator'.
+WARNING:pypsa.consistency:The following lines have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['LV cable'], dtype='str', name='name')
+WARNING:pypsa.consistency:The following sub_networks have carriers which are not defined. Run n.sanitize() to add them. Components with undefined carriers:
+Index(['0'], dtype='str', name='name')
+INFO:linopy.model: Solve problem using Highs solver
+INFO:linopy.io: Writing time: 0.02s
+Running HiGHS 1.14.0 (git hash: 7df0786): Copyright (c) 2026 under MIT licence terms
+LP linopy-problem-1__ha9p0 has 9 rows; 3 cols; 11 nonzeros
+Coefficient ranges:
+  Matrix  [1e+00, 1e+00]
+  Cost    [1e+01, 1e+01]
+  Bound   [0e+00, 0e+00]
+  RHS     [1e-01, 1e+00]
+Presolving model
+0 rows, 0 cols, 0 nonzeros 0s
+0 rows, 0 cols, 0 nonzeros 0s
+Presolve reductions: rows 0(-9); columns 0(-3); nonzeros 0(-11) - Reduced to empty
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model name          : linopy-problem-1__ha9p0
+Model status        : Optimal
+Objective value     :  1.0000000000e+00
+P-D objective error :  0.0000000000e+00
+HiGHS run time      :          0.00
+INFO:linopy.constants: Optimization successful: 
+Status: ok
+Termination condition: optimal
+Solution: 3 primals, 9 duals
+Objective: 1.00e+00
+Solver: highs
+Runtime: 0.00s
+MIP gap: inf
+Dual bound: 0.00e+00
+Solver model: available
+Solver message: Optimal
+
+INFO:pypsa.optimization.optimize:The shadow-prices of the constraints Generator-fix-p-lower, Generator-fix-p-upper, Line-fix-s-lower, Line-fix-s-upper, Transformer-fix-s-lower, Transformer-fix-s-upper were not assigned to the network.
+INFO:pypsa.network.io:Exported network 'Unnamed Network' saved to '/Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/transformer-example/transformer-example.nc contains: sub_networks, transformers, buses, generators, lines, transformer_types, loads
+Saved /Users/tobie/PycharmProjects/pypsa-network-builder-v2/test_networks/pypsa_examples/scraped/transformer-example/transformer-example.nc
