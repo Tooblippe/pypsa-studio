@@ -140,40 +140,6 @@ def copy_static_csv_folder_for_pypsa_import(csv_folder: Path) -> Path:
     return target
 
 
-def choose_pypsa_csv_folder() -> str:
-    """Open a native directory picker and return the selected folder path."""
-    return choose_local_folder("Choose a PyPSA CSV folder")
-
-
-def choose_export_folder() -> str:
-    """Open a native directory picker and return an export base folder path."""
-    return choose_local_folder("Choose an export destination folder")
-
-
-def choose_local_folder(prompt: str) -> str:
-    """Open a Tk native directory picker and return the selected folder path."""
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except ImportError as exc:
-        raise RuntimeError(
-            "Tkinter is not available in this Python installation."
-        ) from exc
-
-    root = tk.Tk()
-    root.withdraw()
-    root.update()
-    try:
-        selected_folder = filedialog.askdirectory(
-            parent=root,
-            title=prompt,
-            mustexist=False,
-        )
-        return str(selected_folder or "")
-    finally:
-        root.destroy()
-
-
 def is_valid_pypsa_csv_folder(csv_folder: Path) -> bool:
     """Return whether a folder looks like a PyPSA CSV export folder."""
     if not csv_folder.exists() or not csv_folder.is_dir():
@@ -1654,13 +1620,48 @@ def builder_tab() -> rx.Component:
 
 def builder_load_network_button() -> rx.Component:
     """Render the toolbar control for selecting a local PyPSA CSV folder."""
-    return rx.button(
-        rx.cond(State.is_loading_network, "Loading network...", "Load network"),
-        aria_label="Load PyPSA network directory",
-        title="Choose a PyPSA CSV folder",
-        disabled=State.is_loading_network,
-        on_click=State.choose_network_directory_and_load,
-        variant="soft",
+    return rx.dialog.root(
+        rx.dialog.trigger(
+            rx.button(
+                rx.cond(State.is_loading_network, "Loading network...", "Load network"),
+                aria_label="Load PyPSA network directory",
+                title="Load a PyPSA CSV folder",
+                disabled=State.is_loading_network,
+                variant="soft",
+            )
+        ),
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Load network"),
+                rx.dialog.description(
+                    "Enter a folder path on the machine running this app.",
+                    size="2",
+                    color_scheme="gray",
+                ),
+                rx.input(
+                    value=State.network_file_path,
+                    on_change=State.set_network_file_path,
+                    placeholder="PyPSA CSV folder path",
+                    width="100%",
+                ),
+                rx.flex(
+                    rx.dialog.close(rx.button("Cancel", variant="soft")),
+                    rx.button(
+                        rx.cond(State.is_loading_network, "Loading...", "Load"),
+                        on_click=State.load_network_directory_path_to_canvas,
+                        disabled=State.is_loading_network,
+                    ),
+                    spacing="2",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                align="stretch",
+            ),
+            max_width="560px",
+        ),
+        open=State.is_load_dialog_open,
+        on_open_change=State.set_load_dialog_open,
     )
 
 
@@ -1739,12 +1740,47 @@ def clear_canvas_dialog() -> rx.Component:
 
 def export_dialog() -> rx.Component:
     """Render the export-to-folder toolbar control."""
-    return rx.button(
-        "Export to folder",
-        aria_label="Export PyPSA network to folder",
-        title="Export PyPSA network to folder",
-        on_click=State.choose_export_folder_and_export,
-        variant="soft",
+    return rx.dialog.root(
+        rx.dialog.trigger(
+            rx.button(
+                "Export to folder",
+                aria_label="Export PyPSA network to folder",
+                title="Export PyPSA network to folder",
+                variant="soft",
+            )
+        ),
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Export network"),
+                rx.dialog.description(
+                    "Enter a destination folder path on the machine running this app.",
+                    size="2",
+                    color_scheme="gray",
+                ),
+                rx.input(
+                    value=State.export_base_folder,
+                    on_change=State.set_export_base_folder,
+                    placeholder="Export folder path",
+                    width="100%",
+                ),
+                rx.flex(
+                    rx.dialog.close(rx.button("Cancel", variant="soft")),
+                    rx.button(
+                        rx.cond(State.operation_kind == "export", "Exporting...", "Export"),
+                        on_click=State.export_canvas_network,
+                        disabled=State.operation_kind == "export",
+                    ),
+                    spacing="2",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                align="stretch",
+            ),
+            max_width="520px",
+        ),
+        open=State.is_export_dialog_open,
+        on_open_change=State.set_export_dialog_open,
     )
 
 
@@ -3000,6 +3036,7 @@ class State(rx.State):
     export_base_folder: str = str(Path.cwd() / "exports")
     export_message: str = ""
     export_error: str = ""
+    is_load_dialog_open: bool = False
     is_export_dialog_open: bool = False
     is_operation_dialog_open: bool = False
     operation_title: str = ""
@@ -3925,6 +3962,7 @@ class State(rx.State):
         """Load a selected CSV folder using Reflex yield updates."""
         csv_folder = selected_directory.expanduser()
         self.is_loading_network = True
+        self.is_load_dialog_open = False
         self.is_operation_dialog_open = True
         self.operation_title = "Loading network"
         self.operation_status = "Importing selected folder..."
@@ -4183,6 +4221,7 @@ class State(rx.State):
         self.network_load_status = ""
         self.export_message = ""
         self.export_error = ""
+        self.is_load_dialog_open = False
         self.is_export_dialog_open = False
         self.is_operation_dialog_open = False
         self.operation_title = ""
@@ -4205,8 +4244,8 @@ class State(rx.State):
         yield
 
         if should_retry_load:
-            async for _ in self.choose_network_directory_and_load():
-                yield
+            self.is_load_dialog_open = True
+            yield
 
     def show_operation_error(
         self,
@@ -4395,47 +4434,14 @@ class State(rx.State):
         """Store a user-entered network CSV folder path."""
         self.network_file_path = value
 
+    def set_load_dialog_open(self, value: bool) -> None:
+        """Update whether the load dialog is open."""
+        self.is_load_dialog_open = value
+
     async def choose_network_directory_and_load(self):
-        """Open a native directory picker and load the selected CSV folder."""
-        try:
-            self.is_loading_network = True
-            self.is_operation_dialog_open = True
-            self.operation_title = "Loading network"
-            self.operation_status = "Waiting for folder selection..."
-            self.operation_kind = "load"
-            self.operation_is_error = False
-            self.operation_retry_load = False
-            self.network_load_status = self.operation_status
-            self.export_message = ""
-            self.export_error = ""
-            yield
-
-            selected_directory = await asyncio.to_thread(choose_pypsa_csv_folder)
-
-            if not selected_directory:
-                self.is_loading_network = False
-                self.is_operation_dialog_open = False
-                self.operation_title = ""
-                self.operation_status = ""
-                self.operation_kind = ""
-                self.operation_is_error = False
-                self.operation_retry_load = False
-                self.network_load_status = ""
-                yield
-                return
-
-            self.network_file_path = selected_directory
-            async for _ in self._load_canvas_from_selected_network_directory(
-                Path(selected_directory)
-            ):
-                yield
-        except Exception as exc:
-            self.export_error = f"Could not choose and load network folder: {exc}"
-            self.export_message = ""
-            self.is_loading_network = False
-            self.network_load_status = ""
-            self.show_operation_error("Could not load network", self.export_error)
-            yield
+        """Open the web dialog for loading a local CSV folder path."""
+        self.is_load_dialog_open = True
+        yield
 
     def arm_branch_component(self, component_name: str) -> None:
         """Arm or disarm a branch component type for bus-to-bus creation."""
@@ -4516,96 +4522,36 @@ class State(rx.State):
         self.is_export_dialog_open = value
 
     async def choose_export_folder(self):
-        """Open a native folder picker and update the export destination."""
-        try:
-            self.is_operation_dialog_open = True
-            self.operation_title = "Select export folder"
-            self.operation_status = "Waiting for folder selection..."
-            self.operation_kind = "export-picker"
-            self.operation_is_error = False
-            self.operation_retry_load = False
-            self.export_error = ""
-            yield
-
-            selected_folder = await asyncio.to_thread(choose_export_folder)
-
-            self.is_operation_dialog_open = False
-            self.operation_title = ""
-            self.operation_status = ""
-            self.operation_kind = ""
-            self.operation_is_error = False
-            if selected_folder:
-                self.export_base_folder = selected_folder
-                self.export_message = f"Export destination set to {selected_folder}."
-            yield
-        except Exception as exc:
-            self.export_error = f"Could not choose export folder: {exc}"
-            self.export_message = ""
-            self.show_operation_error("Could not choose export folder", self.export_error)
-            yield
+        """Open the web dialog for setting the export destination path."""
+        self.is_export_dialog_open = True
+        yield
 
     async def choose_export_folder_and_export(self):
-        """Choose a folder and export the current diagram model to it."""
-        if not self.diagram_nodes:
-            self.export_error = "Add at least one component before exporting."
+        """Export using the configured destination path."""
+        async for _ in self.export_canvas_network():
+            yield
+
+    async def load_network_directory_path_to_canvas(self):
+        """Load the server-local CSV folder path entered in the load dialog."""
+        selected_path_text = self.network_file_path.strip()
+        if not selected_path_text:
+            self.export_error = "Enter the path to a PyPSA CSV export folder."
             self.export_message = ""
+            self.show_operation_error("Could not load network", self.export_error)
             yield
             return
 
         try:
-            self.is_operation_dialog_open = True
-            self.operation_title = "Saving network"
-            self.operation_status = "Waiting for folder selection..."
-            self.operation_kind = "export-picker"
-            self.operation_is_error = False
-            self.operation_retry_load = False
-            self.export_message = ""
-            self.export_error = ""
-            yield
-
-            selected_folder = await asyncio.to_thread(choose_export_folder)
-
-            if not selected_folder:
-                self.is_operation_dialog_open = False
-                self.operation_title = ""
-                self.operation_status = ""
-                self.operation_kind = ""
-                self.operation_is_error = False
-                self.operation_retry_load = False
+            async for _ in self._load_canvas_from_selected_network_directory(
+                Path(selected_path_text)
+            ):
                 yield
-                return
-
-            self.export_base_folder = selected_folder
-            self.operation_status = "Creating PyPSA network and writing CSV files..."
-            self.operation_kind = "export"
-            yield
-
-            extra_csv_tables = self._extra_csv_tables_for_export()
-            export_path = await asyncio.to_thread(
-                export_diagram_to_csv_folder,
-                self.diagram_model,
-                NETWORK_MODEL,
-                selected_folder,
-                "",
-                self.network_name,
-                self.save_network_folder or None,
-                extra_csv_tables,
-            )
-            self.operation_status = "Network saved."
-            self.export_message = ""
-            self.export_error = ""
-            self.is_export_dialog_open = False
-            self.is_operation_dialog_open = False
-            self.operation_title = ""
-            self.operation_status = ""
-            self.operation_kind = ""
-            self.operation_is_error = False
-            self.operation_retry_load = False
-            yield rx.toast.success(f"Exported PyPSA CSV folder to {export_path}.")
         except Exception as exc:
-            self.export_error = f"Could not export network: {exc}"
+            self.export_error = f"Could not load selected network folder onto canvas: {exc}"
             self.export_message = ""
-            self.show_operation_error("Could not save network", self.export_error)
+            self.is_loading_network = False
+            self.network_load_status = ""
+            self.show_operation_error("Could not load network", self.export_error)
             yield
 
     async def save_canvas_network_to_loaded_folder(self):
@@ -4622,6 +4568,7 @@ class State(rx.State):
             return
 
         self.is_operation_dialog_open = True
+        self.is_export_dialog_open = False
         self.operation_title = "Saving network"
         self.operation_status = f"Writing PyPSA CSV files to {self.save_network_folder}..."
         self.operation_kind = "save"
