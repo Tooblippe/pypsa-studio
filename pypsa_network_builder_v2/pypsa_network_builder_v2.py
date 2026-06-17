@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import pandas as pd
 import reflex as rx
 import pypsa
+import plotly.graph_objects as go
 
 
 from pypsa_network_builder_v2.network_model import (
@@ -854,6 +855,20 @@ def table_index_value(value: object) -> str:
     if isinstance(value, tuple):
         return ", ".join(table_cell_value(item) for item in value)
     return table_cell_value(value)
+
+
+def plot_numeric_value(value: object) -> float | None:
+    """Return a numeric Plotly value or None for blanks/non-numeric cells."""
+    text = table_cell_value(value).strip()
+    if not text:
+        return None
+    try:
+        numeric_value = float(text)
+    except ValueError:
+        return None
+    if pd.isna(numeric_value):
+        return None
+    return numeric_value
 
 
 def dataframe_to_other_csv_table(
@@ -2467,6 +2482,22 @@ def network_data_header_cell(column: rx.Var[NetworkDataColumn]) -> rx.Component:
                 color=rx.cond(column["is_time_series"], "orange", "inherit"),
             ),
             rx.badge(column["type"], size="1", variant="soft"),
+            rx.cond(
+                column["is_time_series"],
+                rx.button(
+                    rx.icon("external-link", size=14),
+                    aria_label="Open full time series table",
+                    title="Open full time series table",
+                    on_click=lambda: State.open_network_data_time_series_attr_table(
+                        column["component"],
+                        column["name"],
+                    ),
+                    variant="soft",
+                    size="1",
+                    flex_shrink="0",
+                ),
+                rx.fragment(),
+            ),
             spacing="1",
             align="center",
         ),
@@ -3666,6 +3697,87 @@ def operation_dialog() -> rx.Component:
     )
 
 
+def time_series_plot_controls() -> rx.Component:
+    """Render plotting controls for the open time-series table."""
+    return rx.hstack(
+        rx.segmented_control.root(
+            rx.segmented_control.item("Line", value="line"),
+            rx.segmented_control.item("Bar", value="bar"),
+            value=State.time_series_plot_kind,
+            on_change=State.set_time_series_plot_kind,
+            size="2",
+        ),
+        rx.button(
+            rx.icon("chart-line", size=15),
+            "Plot",
+            on_click=State.open_time_series_plot_dialog,
+            disabled=State.is_time_series_plot_loading,
+            variant="soft",
+        ),
+        spacing="2",
+        align="center",
+    )
+
+
+def time_series_plot_dialog() -> rx.Component:
+    """Render the Plotly dialog for the selected time-series frame."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.hstack(
+                rx.dialog.title(State.time_series_plot_title),
+                rx.dialog.close(
+                    rx.button(
+                        rx.icon("x", size=16),
+                        aria_label="Close plot",
+                        title="Close",
+                        variant="ghost",
+                        size="2",
+                    )
+                ),
+                justify="between",
+                align="center",
+                width="100%",
+            ),
+            rx.cond(
+                State.is_time_series_plot_loading,
+                rx.hstack(
+                    rx.spinner(size="3"),
+                    rx.text("Preparing plot...", size="2", color_scheme="gray"),
+                    spacing="3",
+                    align="center",
+                    min_height="420px",
+                    justify="center",
+                    width="100%",
+                ),
+                rx.cond(
+                    State.time_series_plot_error != "",
+                    rx.box(
+                        rx.text(
+                            State.time_series_plot_error,
+                            size="2",
+                            color_scheme="red",
+                        ),
+                        min_height="180px",
+                        display="flex",
+                        align_items="center",
+                        justify_content="center",
+                    ),
+                    rx.plotly(
+                        data=State.time_series_plot_figure,
+                        config={"responsive": True, "displaylogo": False},
+                        use_resize_handler=True,
+                        style={"width": "100%", "height": "560px"},
+                    ),
+                ),
+            ),
+            width="92vw",
+            max_width="1200px",
+        ),
+        open=State.is_time_series_plot_dialog_open,
+        on_open_change=State.set_time_series_plot_dialog_open,
+    )
+
+
 def other_component_dialog() -> rx.Component:
     """Render dialogs for non-canvas sidebar components."""
     return rx.dialog.root(
@@ -3717,6 +3829,11 @@ def other_component_dialog() -> rx.Component:
                         ),
                         spacing="2",
                     ),
+                    rx.fragment(),
+                ),
+                rx.cond(
+                    State.time_series_dialog_key != "",
+                    time_series_plot_controls(),
                     rx.fragment(),
                 ),
                 rx.dialog.close(
@@ -4106,6 +4223,14 @@ class State(rx.State):
     other_table_error: str = ""
     time_series_dialog_key: str = ""
     time_series_dialog_column: str = ""
+    time_series_dialog_columns: list[str] = []
+    time_series_dialog_full_attr: bool = False
+    is_time_series_plot_dialog_open: bool = False
+    is_time_series_plot_loading: bool = False
+    time_series_plot_kind: str = "line"
+    time_series_plot_title: str = "Time series plot"
+    time_series_plot_error: str = ""
+    time_series_plot_figure: go.Figure = go.Figure()
     is_network_data_dialog_open: bool = False
     network_data_active_component: str = "buses"
     network_data_tabs: list[NetworkDataTab] = []
@@ -4152,6 +4277,10 @@ class State(rx.State):
     def open_other_component_dialog(self, title: str) -> None:
         """Open the placeholder dialog for an unsupported component."""
         component_name = str(title)
+        self.time_series_dialog_key = ""
+        self.time_series_dialog_column = ""
+        self.time_series_dialog_columns = []
+        self.time_series_dialog_full_attr = False
         if component_name == "line_types":
             self.other_component_dialog_title = "Line Types"
             self.other_component_dialog_kind = "standard_type"
@@ -4201,6 +4330,8 @@ class State(rx.State):
         self.other_table_error = ""
         self.time_series_dialog_key = ""
         self.time_series_dialog_column = ""
+        self.time_series_dialog_columns = []
+        self.time_series_dialog_full_attr = False
 
     def set_other_component_dialog_open(self, value: bool) -> None:
         """Update whether the unsupported component dialog is open."""
@@ -4215,6 +4346,25 @@ class State(rx.State):
             self.other_table_error = ""
             self.time_series_dialog_key = ""
             self.time_series_dialog_column = ""
+            self.time_series_dialog_columns = []
+            self.time_series_dialog_full_attr = False
+
+    def _selected_time_series_columns(self, table: OtherCsvTable) -> list[str]:
+        """Return the columns currently selected for the time-series dialog."""
+        table_columns = [str(column) for column in table["columns"]]
+        if self.time_series_dialog_full_attr and table_columns:
+            return table_columns
+
+        selected_columns = [
+            str(column)
+            for column in self.time_series_dialog_columns
+            if str(column).strip()
+        ]
+        if selected_columns:
+            return selected_columns
+        if self.time_series_dialog_column:
+            return [str(self.time_series_dialog_column)]
+        return table_columns
 
     def _sync_other_table_dialog(self) -> None:
         """Refresh editable supplemental CSV table dialog rows from state."""
@@ -4222,15 +4372,13 @@ class State(rx.State):
             table = self.time_series_tables.get(self.time_series_dialog_key)
             if table is None:
                 return
-            column = self.time_series_dialog_column
-            self.other_table_dialog_columns = [column]
+            columns = self._selected_time_series_columns(table)
+            self.other_table_dialog_columns = columns
             rows: list[OtherTableRow] = []
             for row in table["rows"]:
-                value = ""
-                for cell in row["cells"]:
-                    if cell["column"] == column:
-                        value = cell["value"]
-                        break
+                values_by_column = {
+                    str(cell["column"]): str(cell["value"]) for cell in row["cells"]
+                }
                 rows.append(
                     {
                         "row_index": row["row_index"],
@@ -4239,8 +4387,9 @@ class State(rx.State):
                             {
                                 "row_index": row["row_index"],
                                 "column": column,
-                                "value": value,
+                                "value": values_by_column.get(column, ""),
                             }
+                            for column in columns
                         ],
                     }
                 )
@@ -4621,44 +4770,104 @@ class State(rx.State):
         pypsa_name: str,
     ) -> None:
         """Open the editable time-series table for one component attr and row."""
+        self._open_time_series_table_columns(
+            component_name,
+            attr_name,
+            [str(pypsa_name)],
+            f"{component_name}.{attr_name} - {pypsa_name}",
+            full_attr=False,
+        )
+
+    def _open_time_series_table_columns(
+        self,
+        component_name: str,
+        attr_name: str,
+        columns: list[str],
+        title: str,
+        *,
+        full_attr: bool,
+    ) -> None:
+        """Open the time-series table for one or more series columns."""
         component_name = str(component_name)
         attr_name = str(attr_name)
-        pypsa_name = str(pypsa_name)
+        selected_columns = [
+            str(column) for column in columns if str(column).strip()
+        ]
         key = f"{component_name}:{attr_name}"
         table = self.time_series_tables.get(key)
         if table is None:
             table = {
                 "component": key,
                 "file_name": f"{component_name}-{attr_name}.csv",
-                "columns": [pypsa_name],
+                "columns": selected_columns,
                 "rows": [],
                 "index_name": "snapshot",
                 "loaded": False,
                 "dirty": False,
             }
             self.time_series_tables[key] = table
-        if pypsa_name not in table["columns"]:
-            table["columns"].append(pypsa_name)
-            for row in table["rows"]:
-                row["cells"].append(
-                    {
-                        "row_index": row["row_index"],
-                        "column": pypsa_name,
-                        "value": "",
-                    }
-                )
-            table["dirty"] = True
-            self._mark_network_dirty()
-        self.other_component_dialog_title = (
-            f"{component_name}.{attr_name} - {pypsa_name}"
-        )
+        if full_attr and not selected_columns:
+            selected_columns = [str(column) for column in table["columns"]]
+
+        self.other_component_dialog_title = title
         self.other_component_dialog_kind = "csv_table"
         self.other_table_dialog_component = ""
         self.time_series_dialog_key = key
-        self.time_series_dialog_column = pypsa_name
+        self.time_series_dialog_column = selected_columns[0] if selected_columns else ""
+        self.time_series_dialog_columns = selected_columns
+        self.time_series_dialog_full_attr = full_attr
+        self.time_series_plot_error = ""
+        self.time_series_plot_figure = go.Figure()
         self.other_table_error = ""
         self._sync_other_table_dialog()
         self.is_other_component_dialog_open = True
+
+    def _network_data_row_names(self, component_name: str) -> list[str]:
+        """Return row names currently visible for a Network Data component."""
+        return [
+            str(row["name"])
+            for row in self._network_data_rows_for_component(component_name)
+            if str(row["name"]).strip()
+        ]
+
+    async def open_network_data_time_series_attr_table(
+        self,
+        component_name: str,
+        attr_name: str,
+    ):
+        """Open the full time-series table for a Network Data attr header."""
+        component_name = str(component_name)
+        attr_name = str(attr_name)
+        self.is_network_data_dialog_open = False
+        self.is_operation_dialog_open = True
+        self.operation_title = "Loading time series"
+        self.operation_status = f"Opening {component_name}.{attr_name}..."
+        self.operation_kind = "load"
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        yield
+
+        key = f"{component_name}:{attr_name}"
+        table = self.time_series_tables.get(key)
+        columns = (
+            [str(column) for column in table["columns"]]
+            if table is not None and table["columns"]
+            else self._network_data_row_names(component_name)
+        )
+        self._open_time_series_table_columns(
+            component_name,
+            attr_name,
+            columns,
+            f"{component_name}.{attr_name}",
+            full_attr=True,
+        )
+        self.is_operation_dialog_open = False
+        self.operation_title = ""
+        self.operation_status = ""
+        self.operation_kind = ""
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        yield
 
     async def open_network_data_time_series_attr(
         self,
@@ -4689,6 +4898,99 @@ class State(rx.State):
         self.operation_kind = ""
         self.operation_is_error = False
         self.operation_retry_load = False
+        yield
+
+    def set_time_series_plot_kind(self, value: str | list[str]) -> None:
+        """Set the graph type for time-series plotting."""
+        selected_value = value[0] if isinstance(value, list) and value else value
+        self.time_series_plot_kind = "bar" if str(selected_value) == "bar" else "line"
+
+    def set_time_series_plot_dialog_open(self, value: bool) -> None:
+        """Set the time-series plot dialog open state."""
+        self.is_time_series_plot_dialog_open = bool(value)
+        if not value:
+            self.is_time_series_plot_loading = False
+
+    def _build_time_series_plot_figure(self) -> tuple[go.Figure, str]:
+        """Build a Plotly figure from the current time-series dialog table."""
+        table = self.time_series_tables.get(self.time_series_dialog_key)
+        if table is None:
+            return go.Figure(), "No time-series table is open."
+
+        columns = self._selected_time_series_columns(table)
+        if not columns:
+            return go.Figure(), "No series columns are available to plot."
+
+        traces = []
+        for column in columns:
+            x_values: list[str] = []
+            y_values: list[float] = []
+            for row in table["rows"]:
+                values_by_column = {
+                    str(cell["column"]): cell["value"] for cell in row["cells"]
+                }
+                numeric_value = plot_numeric_value(values_by_column.get(column, ""))
+                if numeric_value is None:
+                    continue
+                x_values.append(str(row["id"]))
+                y_values.append(numeric_value)
+
+            if not x_values:
+                continue
+
+            if self.time_series_plot_kind == "bar":
+                traces.append(go.Bar(name=column, x=x_values, y=y_values))
+            else:
+                traces.append(
+                    go.Scatter(
+                        name=column,
+                        x=x_values,
+                        y=y_values,
+                        mode="lines+markers",
+                    )
+                )
+
+        if not traces:
+            return (
+                go.Figure(),
+                "No numeric time-series values are available to plot.",
+            )
+
+        figure = go.Figure(data=traces)
+        figure.update_layout(
+            title=self.other_component_dialog_title or "Time series",
+            xaxis_title=table.get("index_name", "snapshot") or "snapshot",
+            yaxis_title="value",
+            margin={"l": 56, "r": 24, "t": 56, "b": 64},
+            legend={
+                "orientation": "h",
+                "yanchor": "bottom",
+                "y": 1.02,
+                "xanchor": "right",
+                "x": 1,
+            },
+            height=560,
+            barmode="group",
+        )
+        return figure, ""
+
+    async def open_time_series_plot_dialog(self):
+        """Open the time-series Plotly dialog without blocking the first update."""
+        self.is_time_series_plot_dialog_open = True
+        self.is_time_series_plot_loading = True
+        self.time_series_plot_title = (
+            f"{self.other_component_dialog_title} plot"
+            if self.other_component_dialog_title
+            else "Time series plot"
+        )
+        self.time_series_plot_error = ""
+        self.time_series_plot_figure = go.Figure()
+        yield
+
+        figure, error = self._build_time_series_plot_figure()
+        self.time_series_plot_figure = figure
+        self.time_series_plot_error = error
+        self.is_time_series_plot_loading = False
         yield
 
     def _canvas_snapshot(self) -> CanvasSnapshot:
@@ -4883,19 +5185,31 @@ class State(rx.State):
                     dirty=True,
                 )
                 table["loaded"] = True
-                if (
-                    self.time_series_dialog_column
-                    and self.time_series_dialog_column not in table["columns"]
-                ):
-                    table["columns"].append(self.time_series_dialog_column)
-                    for row in table["rows"]:
-                        row["cells"].append(
-                            {
-                                "row_index": row["row_index"],
-                                "column": self.time_series_dialog_column,
-                                "value": "",
-                            }
-                        )
+                if self.time_series_dialog_full_attr:
+                    self.time_series_dialog_columns = [
+                        str(column) for column in table["columns"]
+                    ]
+                    self.time_series_dialog_column = (
+                        self.time_series_dialog_columns[0]
+                        if self.time_series_dialog_columns
+                        else ""
+                    )
+                else:
+                    missing_columns = [
+                        column
+                        for column in self._selected_time_series_columns(table)
+                        if column not in table["columns"]
+                    ]
+                    for column in missing_columns:
+                        table["columns"].append(column)
+                        for row in table["rows"]:
+                            row["cells"].append(
+                                {
+                                    "row_index": row["row_index"],
+                                    "column": column,
+                                    "value": "",
+                                }
+                            )
                 self.time_series_tables[self.time_series_dialog_key] = table
             elif self.other_table_dialog_component:
                 table = dataframe_to_other_csv_table(
@@ -6743,6 +7057,7 @@ def index() -> rx.Component:
         load_network_dialog(),
         export_network_dialog(),
         other_component_dialog(),
+        time_series_plot_dialog(),
         network_data_dialog(),
         menu_bar(),
         rx.box(
