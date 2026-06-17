@@ -1765,11 +1765,17 @@ def drag_payload_script() -> rx.Component:
               "application/pypsa-component",
               JSON.stringify(payload)
             );
+            event.dataTransfer.setData("text/plain", JSON.stringify(payload));
             event.dataTransfer.effectAllowed = "copy";
-            const dragImage = document.createElement("canvas");
-            dragImage.width = 1;
-            dragImage.height = 1;
-            event.dataTransfer.setDragImage(dragImage, 0, 0);
+            const icon = el.querySelector("img");
+            if (icon) {
+              event.dataTransfer.setDragImage(icon, 16, 16);
+            } else {
+              const dragImage = document.createElement("canvas");
+              dragImage.width = 1;
+              dragImage.height = 1;
+              event.dataTransfer.setDragImage(dragImage, 0, 0);
+            }
           }, true);
           document.addEventListener("dragend", () => {
             window.__pypsaBuilderActiveComponent = "";
@@ -2678,35 +2684,25 @@ def demo_styles() -> rx.Component:
           .schematic-node[data-branch-armed="true"] {
             cursor: crosshair;
           }
-          .schematic-node[data-branch-hover="true"] {
-            border-color: #2563eb;
-            background: #dbeafe;
-            box-shadow: 0 0 0 3px color-mix(in srgb, #60a5fa 58%, transparent);
+          .schematic-node[data-branch-start="true"],
+          .schematic-node[data-branch-start="true"]:hover {
+            border-color: transparent;
+            background: transparent;
+            box-shadow: none;
+            transform: none;
           }
-          .schematic-node[data-branch-start="true"] {
-            border-color: var(--green-9);
-            background: var(--green-3);
-            box-shadow: 0 0 0 3px var(--green-5);
-          }
-          .drag-preview-node {
-            position: absolute;
-            z-index: 20;
-            pointer-events: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: 2px solid var(--accent-9);
-            border-radius: 6px;
-            background: color-mix(in srgb, var(--accent-3) 82%, white);
-            color: var(--gray-12);
-            font-size: 10px;
-            font-weight: 700;
-            box-shadow: 0 10px 28px color-mix(in srgb, var(--gray-12) 18%, transparent);
-            opacity: 0.88;
-            transform: translate(-50%, -50%);
+          .schematic-node[data-branch-start="true"] .schematic-bus-symbol {
+            background: var(--green-9);
+            box-shadow: 0 0 0 4px var(--green-5);
           }
           .react-flow-shell[data-armed-component="true"] {
             cursor: crosshair;
+          }
+          .react-flow-shell[data-branch-armed="true"] .react-flow__edge,
+          .react-flow-shell[data-branch-armed="true"] .react-flow__edge-path,
+          .react-flow-shell[data-branch-armed="true"] .react-flow__edge-interaction,
+          .react-flow-shell[data-branch-armed="true"] .react-flow__edge-textwrapper {
+            pointer-events: none;
           }
           .schematic-node-symbol {
             display: block;
@@ -2975,15 +2971,15 @@ def network_menu() -> rx.Component:
         ),
         rx.menu.content(
             rx.menu.item(
-                "Set Name",
+                "New",
+                on_select=State.new_network,
+            ),
+            rx.menu.item(
+                "Rename",
                 shortcut="Ctrl+N",
                 on_select=State.open_network_name_dialog,
             ),
             rx.menu.separator(),
-            rx.menu.item(
-                "New",
-                on_select=State.new_network,
-            ),
             rx.menu.item(
                 "Load",
                 shortcut="Ctrl+O",
@@ -3172,7 +3168,7 @@ def shortcut_actions() -> rx.Component:
     """Render hidden controls used by global keyboard shortcuts."""
     return rx.box(
         rx.button(
-            "Set Name",
+            "Rename",
             id="network-name-shortcut",
             on_click=State.open_network_name_dialog,
         ),
@@ -5423,6 +5419,15 @@ class State(rx.State):
             return
 
         if str(node_id) == self.branch_bus0_node_id:
+            self.diagram_nodes = [
+                node
+                for node in self.diagram_nodes
+                if node["id"] != self.pending_branch_node_id
+            ]
+            self.pending_branch_node_id = ""
+            self.branch_bus0_node_id = ""
+            self._sync_diagram_model()
+            self.select_node(str(node_id))
             return
 
         for node in self.diagram_nodes:

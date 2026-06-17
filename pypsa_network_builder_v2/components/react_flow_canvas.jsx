@@ -126,6 +126,22 @@ function parseComponentPayload(payload) {
   return { component: payload };
 }
 
+function activePalettePayload() {
+  if (typeof window === "undefined") return "";
+  const payload = window.__pypsaBuilderActivePayload || {
+    component: window.__pypsaBuilderActiveComponent || "",
+  };
+  return payload.component ? JSON.stringify(payload) : "";
+}
+
+function dragPayloadFromEvent(event) {
+  return (
+    event.dataTransfer?.getData("application/pypsa-component") ||
+    event.dataTransfer?.getData("text/plain") ||
+    activePalettePayload()
+  );
+}
+
 function displayNameForNode(node) {
   return String(node?.attrs?.name || node?.id || node?.pypsa_name || "");
 }
@@ -298,14 +314,6 @@ function SchematicNode({ data, selected }) {
     }
   }, [busSymbolHeight, data.isBus, data.nodeId, handleSignature, updateNodeInternals]);
 
-  const handleSelect = (event) => {
-    event.stopPropagation();
-    if (data.branchArmed && data.isBus) {
-      data.onBranchBusClick?.(data.nodeId);
-      return;
-    }
-    data.onSelect?.(data.nodeId);
-  };
   const busHandleTop = (handle) => Number(handle.offsetPx || busSymbolHeight / 2);
   const iconHandleTop = symbolHeight / 2;
   const leftContact = `${iconContactPercent(data.component, "left")}%`;
@@ -329,8 +337,6 @@ function SchematicNode({ data, selected }) {
       data-branch-hover={data.branchArmed && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
       data-branch-start={data.branchBus0NodeId === data.nodeId ? "true" : "false"}
       title={`${data.label} (${data.component})`}
-      onClick={handleSelect}
-      onPointerDown={handleSelect}
     >
       <Handle className="schematic-node-handle" id="left-target" type="target" position={Position.Left} style={leftHandleStyle} />
       <Handle className="schematic-node-handle" id="left-source" type="source" position={Position.Left} style={leftHandleStyle} />
@@ -404,10 +410,8 @@ function CanvasInner({
 }) {
   const flowWrapperRef = useRefReactFlowCanvas(null);
   const lastRoutedVersionRef = useRefReactFlowCanvas(0);
-  const dragFrameRef = useRefReactFlowCanvas(0);
   const [hoverBusId, setHoverBusId] = useStateReactFlowCanvas("");
   const [dragComponent, setDragComponent] = useStateReactFlowCanvas("");
-  const [dragPreview, setDragPreview] = useStateReactFlowCanvas(null);
   const reactFlow = useReactFlow();
 
   const isConnectionDrag = Boolean(
@@ -477,26 +481,9 @@ function CanvasInner({
 
   const flowEdges = useMemoReactFlowCanvas(
     () => {
-      const renderedEdges = [...edgeRouting.edges];
-      if (armedBranchComponent && branchBus0NodeId && hoverBusId && hoverBusId !== branchBus0NodeId) {
-        renderedEdges.push({
-          id: `preview:${branchBus0NodeId}:${hoverBusId}`,
-          source: branchBus0NodeId,
-          target: hoverBusId,
-          sourceHandle: "right-source",
-          targetHandle: "left-target",
-          type: "step",
-          selectable: false,
-          style: {
-            strokeWidth: 2,
-            strokeDasharray: "6 5",
-            stroke: "var(--accent-9)",
-          },
-        });
-      }
-      return renderedEdges;
+      return [...edgeRouting.edges];
     },
-    [armedBranchComponent, branchBus0NodeId, edgeRouting.edges, hoverBusId],
+    [edgeRouting.edges],
   );
 
   useEffectReactFlowCanvas(() => {
@@ -560,15 +547,6 @@ function CanvasInner({
     };
   }, [flowEdges, flowNodes, onNodesUpdate, onRouteComplete, reactFlow, routeVersion]);
 
-  useEffectReactFlowCanvas(
-    () => () => {
-      if (dragFrameRef.current) {
-        window.cancelAnimationFrame(dragFrameRef.current);
-      }
-    },
-    [],
-  );
-
   const flowPositionFromEvent = useCallbackReactFlowCanvas(
     (event) => {
       const bounds = flowWrapperRef.current?.getBoundingClientRect();
@@ -584,31 +562,6 @@ function CanvasInner({
       return point;
     },
     [reactFlow],
-  );
-
-  const queueDragPreview = useCallbackReactFlowCanvas(
-    (componentName, event) => {
-      if (!componentName) return;
-      const bounds = flowWrapperRef.current?.getBoundingClientRect();
-      const screenPoint = bounds
-        ? { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
-        : { x: event.clientX, y: event.clientY };
-      if (dragFrameRef.current) {
-        window.cancelAnimationFrame(dragFrameRef.current);
-      }
-      dragFrameRef.current = window.requestAnimationFrame(() => {
-        const meta = symbolMetaForComponent(componentName);
-        setDragPreview({
-          component: componentName,
-          x: screenPoint.x,
-          y: screenPoint.y,
-          width: meta.width,
-          height: meta.height + 20,
-        });
-        dragFrameRef.current = 0;
-      });
-    },
-    [],
   );
 
   const busIdAtPoint = useCallbackReactFlowCanvas(
@@ -658,50 +611,42 @@ function CanvasInner({
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = "copy";
       }
-      const payload =
-        event.dataTransfer?.getData("application/pypsa-component") ||
-        (typeof window !== "undefined" ? window.__pypsaBuilderActiveComponent : "");
+      const payload = dragPayloadFromEvent(event);
       const componentName = dragComponent || parseComponentPayload(payload).component || "";
       if (componentName) {
         setDragComponent(componentName);
-        queueDragPreview(componentName, event);
       }
       if (isAttachableComponent(componentName) && !armedBranchComponent) {
         setHoverBusId(busIdAtPoint(event.clientX, event.clientY));
       }
     },
-    [armedBranchComponent, busIdAtPoint, dragComponent, queueDragPreview],
+    [armedBranchComponent, busIdAtPoint, dragComponent],
   );
 
   const onDragEnter = useCallbackReactFlowCanvas((event) => {
-    const payload =
-      event.dataTransfer?.getData("application/pypsa-component") ||
-      (typeof window !== "undefined" ? window.__pypsaBuilderActiveComponent : "");
+    const payload = dragPayloadFromEvent(event);
     const component = parseComponentPayload(payload);
     const componentName = component.component || "";
     if (!componentName) return;
     setDragComponent(componentName);
-    queueDragPreview(componentName, event);
-  }, [queueDragPreview]);
+  }, []);
 
   const onDragLeave = useCallbackReactFlowCanvas((event) => {
     if (!flowWrapperRef.current?.contains(event.relatedTarget)) {
       setDragComponent("");
       setHoverBusId("");
-      setDragPreview(null);
     }
   }, []);
 
   const onDrop = useCallbackReactFlowCanvas(
     (event) => {
       event.preventDefault();
-      const payload =
-        event.dataTransfer?.getData("application/pypsa-component") ||
-        (typeof window !== "undefined" ? window.__pypsaBuilderActiveComponent : "");
+      const payload = dragPayloadFromEvent(event);
       if (!payload) return;
 
       const component = parseComponentPayload(payload);
-      const componentName = component.component;
+      const componentName = component.component || "";
+      if (!componentName) return;
       const meta = symbolMetaForComponent(componentName);
       const droppedBusId = busIdAtPoint(event.clientX, event.clientY);
       const position = flowPositionFromEvent(event);
@@ -713,9 +658,9 @@ function CanvasInner({
       });
       setDragComponent("");
       setHoverBusId("");
-      setDragPreview(null);
       if (typeof window !== "undefined") {
         window.__pypsaBuilderActiveComponent = "";
+        window.__pypsaBuilderActivePayload = null;
       }
     },
     [busIdAtPoint, flowPositionFromEvent, onNodeDrop],
@@ -759,11 +704,13 @@ function CanvasInner({
 
   const handleNodeMouseEnter = useCallbackReactFlowCanvas(
     (_, node) => {
-      if (armedBranchComponent && node?.data?.isBus && hoverBusId !== node.id) {
-        setHoverBusId(node.id);
+      if (armedBranchComponent && node?.data?.isBus) {
+        setHoverBusId((currentHoverBusId) =>
+          currentHoverBusId === node.id ? currentHoverBusId : node.id,
+        );
       }
     },
-    [armedBranchComponent, hoverBusId],
+    [armedBranchComponent],
   );
 
   const handleNodeMouseLeave = useCallbackReactFlowCanvas((_, node) => {
@@ -774,12 +721,13 @@ function CanvasInner({
 
   const handleEdgeClick = useCallbackReactFlowCanvas(
     (_, edge) => {
+      if (armedBranchComponent) return;
       const componentNodeId = edge?.attrs?.component_node_id;
       if (componentNodeId) {
         onEdgeSelect?.(componentNodeId);
       }
     },
-    [onEdgeSelect],
+    [armedBranchComponent, onEdgeSelect],
   );
 
   const handleNodeDrag = useCallbackReactFlowCanvas(
@@ -833,6 +781,7 @@ function CanvasInner({
     <div
       className="react-flow-shell"
       data-armed-component={armedComponent && !armedBranchComponent ? "true" : "false"}
+      data-branch-armed={armedBranchComponent ? "true" : "false"}
       ref={flowWrapperRef}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -859,19 +808,6 @@ function CanvasInner({
         <Background />
         <Controls />
       </ReactFlow>
-      {dragPreview ? (
-        <div
-          className="drag-preview-node"
-          style={{
-            left: `${dragPreview.x}px`,
-            top: `${dragPreview.y}px`,
-            width: `${dragPreview.width}px`,
-            height: `${dragPreview.height}px`,
-          }}
-        >
-          {dragPreview.component.replaceAll("_", " ")}
-        </div>
-      ) : null}
     </div>
   );
 }
