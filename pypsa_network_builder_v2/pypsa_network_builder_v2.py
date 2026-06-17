@@ -1,14 +1,20 @@
 import asyncio
+import copy
+import io
 import json
+import shutil
+import tempfile
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 from urllib.parse import quote
 
+import pandas as pd
 import reflex as rx
 import pypsa
 
 from pypsa_network_builder_v2.network_model import (
     ComponentType,
+    LAYOUT_FILE_NAME,
     PypsaLoadedNetwork,
     PypsaNetworkModel,
     build_network_model,
@@ -20,25 +26,118 @@ from pypsa_network_builder_v2.network_model import (
     save_uploads_as_csv_folder,
 )
 from pypsa_network_builder_v2.components import react_flow_canvas
+from pypsa_network_builder_v2.routers import (
+    RouterNetwork,
+    discover_python_routers,
+    router_options,
+)
 
 
 NETWORK_MODEL = build_network_model()
+JS_ELK_ROUTER_NAME = "js-elk"
+PYTHON_ROUTERS = discover_python_routers()
+ROUTER_OPTIONS = [
+    {
+        "name": JS_ELK_ROUTER_NAME,
+        "label": "ELK orthogonal",
+        "description": "Browser-side ELK layered orthogonal layout.",
+    },
+    *router_options(PYTHON_ROUTERS),
+]
 UPLOAD_ID = "pypsa-network-upload"
 FOLDER_UPLOAD_ID = "pypsa-network-folder-upload"
 BUILDER_LOAD_UPLOAD_ID = "pypsa-builder-load-upload"
 BUILDER_LOAD_FOLDER_UPLOAD_ID = "pypsa-builder-load-folder-upload"
+EDITABLE_CSV_UPLOAD_ID = "editable-csv-upload"
 NETWORK_OBJECT_DISPLAY_LIMIT = 100
+CANVAS_HISTORY_LIMIT = 100
+REFERENCE_ATTR_TABLES = {
+    "carrier": "carriers",
+    "sub_network": "sub_networks",
+}
+OTHER_TABLE_COMPONENTS = {
+    "carriers": "carriers.csv",
+    "shapes": "shapes.csv",
+    "sub_networks": "sub_networks.csv",
+}
+SNAPSHOT_TABLE_COMPONENTS = {
+    "snapshots": "snapshots.csv",
+    "investment_periods": "investment_periods.csv",
+}
+CSV_TABLE_COMPONENTS = {
+    **OTHER_TABLE_COMPONENTS,
+    **SNAPSHOT_TABLE_COMPONENTS,
+}
+SNAPSHOT_TABLE_COLUMNS = {
+    "snapshots": ["period", "timestep", "objective", "stores", "generators"],
+    "investment_periods": ["objective", "years"],
+}
+SNAPSHOT_TABLE_INDEX_NAMES = {
+    "snapshots": "",
+    "investment_periods": "period",
+}
+APP_STATE_DIR = Path(".states")
+APP_SETTINGS_FILE = APP_STATE_DIR / "pypsa_network_builder_settings.json"
 
 
 def load_csv_folder_network(csv_folder: Path) -> tuple[pypsa.Network, PypsaLoadedNetwork]:
     """Load a PyPSA CSV folder and derived metadata off the Reflex event loop."""
     network = pypsa.Network()
-    network.import_from_csv_folder(csv_folder)
+    try:
+        network.import_from_csv_folder(csv_folder)
+    except Exception:
+        network = pypsa.Network()
+        static_csv_folder = copy_static_csv_folder_for_pypsa_import(csv_folder)
+        network.import_from_csv_folder(static_csv_folder)
     loaded_network = pypsa_network_to_loaded_network(
         network,
         source=str(csv_folder),
     )
     return network, loaded_network
+
+
+def is_pypsa_csv_folder(path: Path) -> bool:
+    """Return whether a path looks like a local PyPSA CSV folder."""
+    folder = Path(path).expanduser()
+    return folder.is_dir() and (
+        (folder / "buses.csv").exists() or (folder / "network.csv").exists()
+    )
+
+
+def read_last_network_folder() -> Path | None:
+    """Read the last successfully loaded local network folder from app settings."""
+    try:
+        payload = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    folder = str(payload.get("last_network_folder", "")).strip()
+    if not folder:
+        return None
+    return Path(folder).expanduser()
+
+
+def write_last_network_folder(csv_folder: Path) -> None:
+    """Persist the last successfully loaded local network folder."""
+    APP_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    APP_SETTINGS_FILE.write_text(
+        json.dumps({"last_network_folder": str(Path(csv_folder).expanduser())}, indent=2),
+        encoding="utf-8",
+    )
+
+
+def copy_static_csv_folder_for_pypsa_import(csv_folder: Path) -> Path:
+    """Copy static CSV files to a temp folder for PyPSA imports that reject time indexes."""
+    source = Path(csv_folder).expanduser()
+    target = Path(tempfile.mkdtemp(prefix="pypsa-static-import-"))
+    excluded = {"snapshots.csv", "investment_periods.csv"}
+    for csv_file in source.glob("*.csv"):
+        file_name = csv_file.name
+        if file_name in excluded or "-" in csv_file.stem:
+            continue
+        shutil.copy2(csv_file, target / file_name)
+    return target
 
 
 def choose_pypsa_csv_folder() -> str:
@@ -68,7 +167,7 @@ def choose_local_folder(prompt: str) -> str:
         selected_folder = filedialog.askdirectory(
             parent=root,
             title=prompt,
-            mustexist=True,
+            mustexist=False,
         )
         return str(selected_folder or "")
     finally:
@@ -115,7 +214,9 @@ class DiagramAttr(TypedDict):
     type: str
     input_type: str
     is_time_series: bool
+    has_time_series_table: bool
     is_bus_reference: bool
+    options: list[str]
 
 
 class DiagramNode(TypedDict):
@@ -162,6 +263,89 @@ class NetworkObjectConnectionRow(TypedDict):
     target: str
     component: str
     attrs_json: str
+
+
+class StandardTypeRow(TypedDict):
+    name: str
+    values: list[str]
+
+
+class RouterOption(TypedDict):
+    name: str
+    label: str
+    description: str
+
+
+class OtherTableCell(TypedDict):
+    row_index: int
+    column: str
+    value: str
+
+
+class OtherTableRow(TypedDict):
+    row_index: int
+    id: str
+    cells: list[OtherTableCell]
+
+
+class OtherCsvTable(TypedDict):
+    component: str
+    file_name: str
+    columns: list[str]
+    rows: list[OtherTableRow]
+    index_name: str
+    loaded: bool
+    dirty: bool
+
+
+class NetworkDataColumn(TypedDict):
+    component: str
+    name: str
+    type: str
+    input_type: str
+    is_time_series: bool
+    is_bus_reference: bool
+    options: list[str]
+
+
+class NetworkDataCell(TypedDict):
+    component: str
+    row_id: str
+    row_index: int
+    attr_name: str
+    value: object
+    type: str
+    input_type: str
+    is_time_series: bool
+    is_bus_reference: bool
+    options: list[str]
+
+
+class NetworkDataRow(TypedDict):
+    component: str
+    row_id: str
+    row_index: int
+    name: str
+    cells: list[NetworkDataCell]
+
+
+class NetworkDataTab(TypedDict):
+    component: str
+    label: str
+    columns: list[NetworkDataColumn]
+    rows: list[NetworkDataRow]
+    row_count: int
+
+
+class CanvasSnapshot(TypedDict):
+    diagram_nodes: list[DiagramNode]
+    component_counters: dict[str, int]
+    route_version: int
+    selected_node_id: str
+    armed_component: str
+    armed_branch_component: str
+    pending_branch_node_id: str
+    branch_bus0_node_id: str
 
 
 def format_current_value(value: object) -> str:
@@ -279,6 +463,21 @@ def component_to_row(
     }
 
 
+def icon_row(component_name: str, pypsa_name: str) -> ComponentRow:
+    """Build a palette row for a non-PyPSA-component icon."""
+    icon_path = Path(__file__).parent / "network_model" / "icons" / f"{component_name}.svg"
+    icon_svg = icon_path.read_text(encoding="utf-8").strip() if icon_path.exists() else ""
+    icon_src = f"data:image/svg+xml;utf8,{quote(icon_svg)}" if icon_svg else ""
+    return {
+        "component": component_name,
+        "pypsa_name": pypsa_name,
+        "icon_src": icon_src,
+        "icon_svg": icon_svg,
+        "attrs": [],
+        "default_attr": "",
+    }
+
+
 def palette_groups() -> dict[str, list[ComponentRow]]:
     """Return the component groups shown in the builder palette."""
     return model_sections(NETWORK_MODEL)
@@ -308,23 +507,371 @@ def is_bus_reference_attr(attr_name: str) -> bool:
     )
 
 
+def standard_type_names(component_name: str) -> list[str]:
+    """Return available standard type names for PyPSA type-backed components."""
+    if component_name == "lines":
+        return [str(name) for name in pypsa.Network().line_types.index]
+    if component_name == "transformers":
+        return [str(name) for name in pypsa.Network().transformer_types.index]
+    return []
+
+
+def standard_type_rows(component_name: str) -> list[StandardTypeRow]:
+    """Return display rows for PyPSA standard line or transformer type tables."""
+    if component_name == "line_types":
+        data_frame = pypsa.Network().line_types
+    elif component_name == "transformer_types":
+        data_frame = pypsa.Network().transformer_types
+    else:
+        return []
+
+    rows: list[StandardTypeRow] = []
+    for name, row in data_frame.iterrows():
+        rows.append(
+            {
+                "name": str(name),
+                "values": [
+                    format_current_value(clean_imported_value(value))
+                    for column, value in row.items()
+                    if str(column) != "references"
+                ],
+            }
+        )
+    return rows
+
+
+def standard_type_columns(component_name: str) -> list[str]:
+    """Return parameter column names for PyPSA standard type tables."""
+    if component_name == "line_types":
+        return [
+            str(column)
+            for column in pypsa.Network().line_types.columns
+            if str(column) != "references"
+        ]
+    if component_name == "transformer_types":
+        return [
+            str(column)
+            for column in pypsa.Network().transformer_types.columns
+            if str(column) != "references"
+        ]
+    return []
+
+
+def default_other_table_columns(component_name: str) -> list[str]:
+    """Return PyPSA static columns for supplemental Other CSV tables."""
+    if component_name in SNAPSHOT_TABLE_COLUMNS:
+        return SNAPSHOT_TABLE_COLUMNS[component_name]
+    if component_name not in OTHER_TABLE_COMPONENTS:
+        return []
+    return [str(column) for column in pypsa.Network().components[component_name].static.columns]
+
+
+def dataframe_to_other_csv_table(
+    component_name: str,
+    data_frame: pd.DataFrame,
+) -> OtherCsvTable:
+    """Convert a loaded supplemental CSV DataFrame into editable UI table data."""
+    columns = [str(column) for column in data_frame.columns]
+    rows: list[OtherTableRow] = []
+    for row_index, (index_value, row) in enumerate(data_frame.iterrows()):
+        rows.append(
+            {
+                "row_index": row_index,
+                "id": "" if pd.isna(index_value) else str(index_value),
+                "cells": [
+                    {
+                        "row_index": row_index,
+                        "column": column,
+                        "value": "" if pd.isna(row[column]) else str(row[column]),
+                    }
+                    for column in columns
+                ],
+            }
+        )
+    return {
+        "component": component_name,
+        "file_name": CSV_TABLE_COMPONENTS.get(component_name, f"{component_name}.csv"),
+        "columns": columns,
+        "rows": rows,
+        "index_name": SNAPSHOT_TABLE_INDEX_NAMES.get(component_name, "name"),
+        "loaded": True,
+        "dirty": False,
+    }
+
+
+def empty_other_csv_table(component_name: str) -> OtherCsvTable:
+    """Return an empty editable supplemental CSV table."""
+    columns = default_other_table_columns(component_name)
+    return {
+        "component": component_name,
+        "file_name": CSV_TABLE_COMPONENTS[component_name],
+        "columns": columns,
+        "rows": [],
+        "index_name": SNAPSHOT_TABLE_INDEX_NAMES.get(component_name, "name"),
+        "loaded": False,
+        "dirty": False,
+    }
+
+
+def load_other_csv_tables(csv_folder: Path) -> dict[str, OtherCsvTable]:
+    """Load supplemental Other CSVs that the canvas does not model directly."""
+    tables: dict[str, OtherCsvTable] = {}
+    for component_name, file_name in CSV_TABLE_COMPONENTS.items():
+        csv_path = csv_folder / file_name
+        if csv_path.exists():
+            data_frame = pd.read_csv(csv_path, index_col=0, dtype=str).fillna("")
+            tables[component_name] = dataframe_to_other_csv_table(
+                component_name,
+                data_frame,
+            )
+        else:
+            tables[component_name] = empty_other_csv_table(component_name)
+    return tables
+
+
+def dataframe_to_time_series_table(
+    component_name: str,
+    attr_name: str,
+    data_frame: pd.DataFrame,
+    dirty: bool = False,
+) -> OtherCsvTable:
+    """Convert a component time-series CSV into editable table data."""
+    table = dataframe_to_other_csv_table(
+        f"{component_name}:{attr_name}",
+        data_frame,
+    )
+    table["file_name"] = f"{component_name}-{attr_name}.csv"
+    table["index_name"] = "snapshot"
+    table["dirty"] = dirty
+    return table
+
+
+def load_time_series_csv_tables(csv_folder: Path) -> dict[str, OtherCsvTable]:
+    """Load component-attribute time-series CSVs from a PyPSA CSV folder."""
+    tables: dict[str, OtherCsvTable] = {}
+    for csv_path in csv_folder.glob("*.csv"):
+        stem = csv_path.stem
+        if "-" not in stem:
+            continue
+        component_name, attr_name = stem.split("-", 1)
+        if component_name not in NETWORK_MODEL.all_components:
+            continue
+        component = NETWORK_MODEL.component(component_name)
+        if attr_name not in component.attrs:
+            continue
+        try:
+            data_frame = pd.read_csv(csv_path, index_col=0, dtype=str).fillna("")
+        except Exception:
+            continue
+        tables[f"{component_name}:{attr_name}"] = dataframe_to_time_series_table(
+            component_name,
+            attr_name,
+            data_frame,
+        )
+    return tables
+
+
+def load_layout_positions(
+    csv_folder: Path,
+) -> dict[tuple[str, str], dict[str, float]]:
+    """Load saved builder canvas positions keyed by component and PyPSA name."""
+    layout_path = csv_folder / LAYOUT_FILE_NAME
+    if not layout_path.exists():
+        return {}
+    try:
+        payload = json.loads(layout_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    positions: dict[tuple[str, str], dict[str, float]] = {}
+    entries = payload.get("positions", []) if isinstance(payload, dict) else []
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        component_name = str(entry.get("component", "")).strip()
+        pypsa_name = str(entry.get("name", "")).strip()
+        if not component_name or not pypsa_name:
+            continue
+        try:
+            positions[(component_name, pypsa_name)] = {
+                "x": float(entry.get("x", 0)),
+                "y": float(entry.get("y", 0)),
+            }
+        except (TypeError, ValueError):
+            continue
+    return positions
+
+
+def apply_layout_positions(
+    diagram_nodes: list[DiagramNode],
+    layout_positions: dict[tuple[str, str], dict[str, float]],
+) -> None:
+    """Apply saved builder positions to imported diagram nodes in place."""
+    if not layout_positions:
+        return
+    for node in diagram_nodes:
+        attrs = node.get("attrs", {})
+        pypsa_name = str(attrs.get("name") or node["id"]) if isinstance(attrs, dict) else node["id"]
+        position = layout_positions.get((node["component"], pypsa_name))
+        if position is not None:
+            node["position"] = {"x": position["x"], "y": position["y"]}
+
+
 def diagram_attr_rows(component: ComponentType, attrs: dict[str, object]) -> list[DiagramAttr]:
     """Build editable attribute rows for a diagram component."""
     rows: list[DiagramAttr] = []
     for attr_name, attr in component.attrs.items():
         pypsa_type = attr.pypsa_type or "any"
+        is_reference_attr = attr_name in REFERENCE_ATTR_TABLES
+        options = (
+            standard_type_names(component.component)
+            if attr_name == "type" and component.component in {"lines", "transformers"}
+            else []
+        )
         rows.append(
             {
                 "name": attr_name,
                 "value": attrs.get(attr_name, attr.default),
                 "type": pypsa_type,
-                "input_type": attr_input_type(attr.pypsa_type, attr.python_type),
+                "input_type": (
+                    "reference"
+                    if is_reference_attr
+                    else "select" if options else attr_input_type(attr.pypsa_type, attr.python_type)
+                ),
                 "is_time_series": bool(attr.varying)
                 or "series" in str(attr.pypsa_type).lower(),
+                "has_time_series_table": False,
                 "is_bus_reference": is_bus_reference_attr(attr_name),
+                "options": options,
             }
         )
     return rows
+
+
+def is_canvas_data_component(component_name: str) -> bool:
+    """Return whether component rows are represented by diagram nodes."""
+    if component_name == "buses":
+        return True
+    component = NETWORK_MODEL.all_components.get(component_name)
+    if component is None:
+        return False
+    return any(is_bus_reference_attr(attr_name) for attr_name in component.attrs)
+
+
+def editable_component_attr_names(component: ComponentType) -> list[str]:
+    """Return editable PyPSA input attrs shown by the network data dialog."""
+    attr_names: list[str] = []
+    for attr_name, attr in component.attrs.items():
+        if attr_name == "references":
+            continue
+        status = str(attr.status or "").lower()
+        if not status.startswith("input"):
+            continue
+        if attr.static is not True:
+            continue
+        attr_names.append(attr_name)
+    return attr_names
+
+
+def network_data_column_for_attr(
+    component_name: str,
+    attr_name: str,
+) -> NetworkDataColumn:
+    """Build network data grid metadata for one editable attr."""
+    component = NETWORK_MODEL.component(component_name)
+    attr = component.attrs[attr_name]
+    options = (
+        standard_type_names(component.component)
+        if attr_name == "type" and component.component in {"lines", "transformers"}
+        else []
+    )
+    is_reference_attr = attr_name in REFERENCE_ATTR_TABLES
+    return {
+        "component": component_name,
+        "name": attr_name,
+        "type": attr.pypsa_type or "any",
+        "input_type": (
+            "reference"
+            if is_reference_attr
+            else "select" if options else attr_input_type(attr.pypsa_type, attr.python_type)
+        ),
+        "is_time_series": bool(attr.varying)
+        or "series" in str(attr.pypsa_type).lower(),
+        "is_bus_reference": is_bus_reference_attr(attr_name),
+        "options": options,
+    }
+
+
+def network_data_columns(component_name: str) -> list[NetworkDataColumn]:
+    """Return columns for the component network data grid, excluding name."""
+    component = NETWORK_MODEL.component(component_name)
+    return [
+        network_data_column_for_attr(component_name, attr_name)
+        for attr_name in editable_component_attr_names(component)
+        if attr_name != "name"
+    ]
+
+
+def network_data_file_name(component_name: str) -> str:
+    """Return the CSV file name for a PyPSA component table."""
+    return CSV_TABLE_COMPONENTS.get(component_name, f"{component_name}.csv")
+
+
+def network_data_index_name(component_name: str) -> str:
+    """Return the CSV index name for a PyPSA component table."""
+    return SNAPSHOT_TABLE_INDEX_NAMES.get(component_name, "name")
+
+
+def dataframe_to_network_data_table(
+    component_name: str,
+    data_frame: pd.DataFrame,
+    dirty: bool = False,
+    loaded: bool = True,
+) -> OtherCsvTable:
+    """Convert a static PyPSA component DataFrame into editable table state."""
+    columns = [
+        column["name"]
+        for column in network_data_columns(component_name)
+        if column["name"] in data_frame.columns
+    ]
+    rows: list[OtherTableRow] = []
+    for row_index, (index_value, row) in enumerate(data_frame.iterrows()):
+        rows.append(
+            {
+                "row_index": row_index,
+                "id": "" if pd.isna(index_value) else str(index_value),
+                "cells": [
+                    {
+                        "row_index": row_index,
+                        "column": column,
+                        "value": "" if pd.isna(row[column]) else str(row[column]),
+                    }
+                    for column in columns
+                ],
+            }
+        )
+    return {
+        "component": component_name,
+        "file_name": network_data_file_name(component_name),
+        "columns": columns,
+        "rows": rows,
+        "index_name": network_data_index_name(component_name),
+        "loaded": loaded,
+        "dirty": dirty,
+    }
+
+
+def empty_network_data_table(component_name: str) -> OtherCsvTable:
+    """Return an empty editable table for a non-canvas PyPSA component."""
+    return {
+        "component": component_name,
+        "file_name": network_data_file_name(component_name),
+        "columns": [column["name"] for column in network_data_columns(component_name)],
+        "rows": [],
+        "index_name": network_data_index_name(component_name),
+        "loaded": False,
+        "dirty": False,
+    }
 
 
 def make_diagram_node(
@@ -541,7 +1088,7 @@ def component_section(title: str, components: list[ComponentRow]) -> rx.Componen
 
 
 def palette_item(component: rx.Var[ComponentRow]) -> rx.Component:
-    """Render a draggable palette item for visible canvas components."""
+    """Render a draggable and armable palette item for visible canvas components."""
     return rx.tooltip(
         rx.box(
             rx.image(
@@ -554,14 +1101,23 @@ def palette_item(component: rx.Var[ComponentRow]) -> rx.Component:
             aria_label=component["pypsa_name"],
             draggable=True,
             custom_attrs={"data-pypsa-component": component["component"]},
+            on_click=lambda: State.arm_canvas_component(component["component"]),
             width="32px",
             height="32px",
             padding="0",
             margin="0",
-            border="0",
+            border=rx.cond(
+                State.armed_component == component["component"],
+                "2px solid var(--accent-9)",
+                "0",
+            ),
             border_radius="2px",
             cursor="grab",
-            background="transparent",
+            background=rx.cond(
+                State.armed_component == component["component"],
+                "var(--accent-3)",
+                "transparent",
+            ),
             _hover={"background": "var(--accent-3)"},
             display="flex",
             align_items="center",
@@ -585,7 +1141,7 @@ def inert_palette_item(component: rx.Var[ComponentRow]) -> rx.Component:
             ),
             aria_label=component["pypsa_name"],
             on_click=lambda: State.open_other_component_dialog(
-                component["pypsa_name"]
+                component["component"]
             ),
             width="32px",
             height="32px",
@@ -692,6 +1248,8 @@ def palette_sidebar() -> rx.Component:
     return rx.vstack(
         primary_palette_section(),
         palette_section("Other", State.palette["other"], columns="2", inert=True),
+        palette_section("Types", State.palette["standard_types"], columns="2", inert=True),
+        palette_section("Snapshots", State.palette["snapshot_tables"], columns="2", inert=True),
         spacing="2",
         align="stretch",
         width="120px",
@@ -725,6 +1283,70 @@ def bus_attr_select(attr: rx.Var[DiagramAttr]) -> rx.Component:
     )
 
 
+def attr_option_item(option: rx.Var[str]) -> rx.Component:
+    """Render one standard type option."""
+    return rx.select.item(option, value=option)
+
+
+def standard_type_attr_select(attr: rx.Var[DiagramAttr]) -> rx.Component:
+    """Render a selector for PyPSA standard LineType or TransformerType names."""
+    return rx.select.root(
+        rx.select.trigger(placeholder="Select type", width="100%"),
+        rx.select.content(
+            rx.select.group(
+                rx.foreach(attr["options"], attr_option_item),
+            ),
+        ),
+        value=attr["value"].to(str),
+        on_change=lambda value: State.update_selected_attr(attr["name"], value),
+        width="100%",
+    )
+
+
+def reference_attr_input(attr: rx.Var[DiagramAttr]) -> rx.Component:
+    """Render a global CSV-backed reference selector with free-text entry."""
+    return rx.vstack(
+        rx.select.root(
+            rx.select.trigger(placeholder="Select saved value", width="100%"),
+            rx.select.content(
+                rx.select.group(
+                    rx.foreach(attr["options"], attr_option_item),
+                ),
+            ),
+            value=attr["value"].to(str),
+            on_change=lambda value: State.update_selected_attr(attr["name"], value),
+            width="100%",
+        ),
+        rx.hstack(
+            rx.input(
+                value=attr["value"].to(str),
+                placeholder="Type value",
+                on_change=lambda value: State.update_selected_attr(
+                    attr["name"], value
+                ),
+                on_blur=lambda value: State.commit_selected_attr_reference(
+                    attr["name"], value
+                ),
+                width="100%",
+            ),
+            rx.button(
+                rx.icon("plus", size=14),
+                aria_label="Add reference value",
+                title="Add reference value",
+                on_click=lambda: State.commit_selected_attr_reference(attr["name"]),
+                variant="soft",
+                size="2",
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+        ),
+        spacing="2",
+        align="stretch",
+        width="100%",
+    )
+
+
 def editor_attr(attr: rx.Var[DiagramAttr]) -> rx.Component:
     """Render the editor control for one selected component attribute."""
     return rx.vstack(
@@ -736,6 +1358,20 @@ def editor_attr(attr: rx.Var[DiagramAttr]) -> rx.Component:
                 color=rx.cond(attr["is_time_series"], "orange", "inherit"),
             ),
             rx.badge(attr["type"], size="1", variant="soft"),
+            rx.cond(
+                attr["has_time_series_table"],
+                rx.button(
+                    rx.icon("table-2", size=14),
+                    aria_label="Edit time series",
+                    title="Edit time series",
+                    on_click=lambda: State.open_selected_time_series_attr(
+                        attr["name"]
+                    ),
+                    variant="soft",
+                    size="1",
+                ),
+                rx.fragment(),
+            ),
             justify="between",
             width="100%",
         ),
@@ -750,13 +1386,25 @@ def editor_attr(attr: rx.Var[DiagramAttr]) -> rx.Component:
             rx.cond(
                 attr["is_bus_reference"],
                 bus_attr_select(attr),
-                rx.input(
-                    value=attr["value"].to(str),
-                    type=rx.cond(attr["input_type"] == "number", "number", "text"),
-                    on_change=lambda value: State.update_selected_attr(
-                        attr["name"], value
+                rx.cond(
+                    attr["input_type"] == "reference",
+                    reference_attr_input(attr),
+                    rx.cond(
+                        attr["input_type"] == "select",
+                        standard_type_attr_select(attr),
+                        rx.input(
+                            value=attr["value"].to(str),
+                            type=rx.cond(
+                                attr["input_type"] == "number",
+                                "number",
+                                "text",
+                            ),
+                            on_change=lambda value: State.update_selected_attr(
+                                attr["name"], value
+                            ),
+                            width="100%",
+                        ),
                     ),
-                    width="100%",
                 ),
             ),
         ),
@@ -769,7 +1417,25 @@ def editor_attr(attr: rx.Var[DiagramAttr]) -> rx.Component:
 def right_sidebar() -> rx.Component:
     """Render the selected component attribute editor."""
     return rx.vstack(
-        rx.heading("Selection", size="4"),
+        rx.hstack(
+            rx.heading("Selection", size="4"),
+            rx.cond(
+                State.selected_node_id != "",
+                rx.button(
+                    rx.icon("trash-2", size=15),
+                    aria_label="Delete selected component",
+                    title="Delete selected component",
+                    on_click=State.delete_selected_node,
+                    color_scheme="red",
+                    variant="soft",
+                    size="2",
+                ),
+                rx.fragment(),
+            ),
+            justify="between",
+            align="center",
+            width="100%",
+        ),
         rx.cond(
             State.selected_node_id != "",
             rx.vstack(
@@ -820,9 +1486,42 @@ def drag_payload_script() -> rx.Component:
               JSON.stringify({ component: el.dataset.pypsaComponent })
             );
             event.dataTransfer.effectAllowed = "copy";
+            const dragImage = document.createElement("canvas");
+            dragImage.width = 1;
+            dragImage.height = 1;
+            event.dataTransfer.setDragImage(dragImage, 0, 0);
           }, true);
           document.addEventListener("dragend", () => {
             window.__pypsaBuilderActiveComponent = "";
+          }, true);
+        }
+        """
+    )
+
+
+def canvas_shortcuts_script() -> rx.Component:
+    """Install canvas undo/redo keyboard shortcuts."""
+    return rx.script(
+        """
+        if (!window.__pypsaBuilderShortcutsBound) {
+          window.__pypsaBuilderShortcutsBound = true;
+          document.addEventListener("keydown", (event) => {
+            const target = event.target;
+            const tag = (target?.tagName || "").toLowerCase();
+            const editable =
+              target?.isContentEditable ||
+              tag === "input" ||
+              tag === "textarea" ||
+              tag === "select";
+            if (editable || !event.ctrlKey || event.altKey || event.metaKey) return;
+            const key = String(event.key || "").toLowerCase();
+            if (key === "z" && event.shiftKey) {
+              event.preventDefault();
+              document.getElementById("canvas-redo-button")?.click();
+            } else if (key === "z") {
+              event.preventDefault();
+              document.getElementById("canvas-undo-button")?.click();
+            }
           }, true);
         }
         """
@@ -845,10 +1544,31 @@ def directory_upload_script(upload_id: str) -> rx.Component:
     )
 
 
+def router_select_item(option: rx.Var[RouterOption]) -> rx.Component:
+    """Render one router selector option."""
+    return rx.select.item(option["label"], value=option["name"])
+
+
+def router_select() -> rx.Component:
+    """Render the auto-router selector."""
+    return rx.select.root(
+        rx.select.trigger(placeholder="Router", width="170px"),
+        rx.select.content(
+            rx.select.group(
+                rx.foreach(State.router_options, router_select_item),
+            ),
+        ),
+        value=State.selected_router_name,
+        on_change=State.set_selected_router_name,
+        width="170px",
+    )
+
+
 def builder_tab() -> rx.Component:
     """Render the main schematic builder tab."""
     return rx.vstack(
         drag_payload_script(),
+        canvas_shortcuts_script(),
         rx.hstack(
             palette_sidebar(),
             rx.vstack(
@@ -867,8 +1587,12 @@ def builder_tab() -> rx.Component:
                         on_click=State.auto_route_canvas,
                         variant="soft",
                     ),
+                    router_select(),
                     builder_load_network_button(),
+                    save_loaded_network_button(),
+                    network_data_button(),
                     export_dialog(),
+                    undo_redo_buttons(),
                     clear_canvas_dialog(),
                     justify="start",
                     align="center",
@@ -882,6 +1606,7 @@ def builder_tab() -> rx.Component:
                         nodes=State.diagram_nodes,
                         edges=State.diagram_edges,
                         route_version=State.route_version,
+                        armed_component=State.armed_component,
                         armed_branch_component=State.armed_branch_component,
                         branch_bus0_node_id=State.branch_bus0_node_id,
                         on_node_drop=State.add_diagram_node,
@@ -928,27 +1653,48 @@ def builder_tab() -> rx.Component:
 
 
 def builder_load_network_button() -> rx.Component:
-    """Render the toolbar control for uploading a PyPSA CSV folder."""
-    return rx.box(
-        rx.upload(
+    """Render the toolbar control for selecting a local PyPSA CSV folder."""
+    return rx.button(
+        rx.cond(State.is_loading_network, "Loading network...", "Load network"),
+        aria_label="Load PyPSA network directory",
+        title="Choose a PyPSA CSV folder",
+        disabled=State.is_loading_network,
+        on_click=State.choose_network_directory_and_load,
+        variant="soft",
+    )
+
+
+def undo_redo_buttons() -> rx.Component:
+    """Render canvas undo and redo controls."""
+    return rx.hstack(
+        rx.tooltip(
             rx.button(
-                rx.cond(State.is_loading_network, "Loading network...", "Load network"),
-                aria_label="Load PyPSA network directory",
-                title="Choose a PyPSA CSV folder",
-                disabled=State.is_loading_network,
+                rx.icon("undo-2", size=16),
+                aria_label="Undo",
+                title="Undo (Ctrl+Z)",
+                on_click=State.undo_canvas,
+                disabled=rx.cond(State.can_undo_canvas, False, True),
                 variant="soft",
+                size="2",
+                custom_attrs={"id": "canvas-undo-button"},
             ),
-            id=BUILDER_LOAD_FOLDER_UPLOAD_ID,
-            multiple=True,
-            accept={"text/csv": [".csv"]},
-            on_drop=State.load_network_folder_to_canvas(
-                rx.upload_files(upload_id=BUILDER_LOAD_FOLDER_UPLOAD_ID)
-            ),
-            border="none",
-            padding="0",
-            width="fit-content",
+            content="Undo (Ctrl+Z)",
         ),
-        directory_upload_script(BUILDER_LOAD_FOLDER_UPLOAD_ID),
+        rx.tooltip(
+            rx.button(
+                rx.icon("redo-2", size=16),
+                aria_label="Redo",
+                title="Redo (Ctrl+Shift+Z)",
+                on_click=State.redo_canvas,
+                disabled=rx.cond(State.can_redo_canvas, False, True),
+                variant="soft",
+                size="2",
+                custom_attrs={"id": "canvas-redo-button"},
+            ),
+            content="Redo (Ctrl+Shift+Z)",
+        ),
+        spacing="1",
+        align="center",
     )
 
 
@@ -992,70 +1738,318 @@ def clear_canvas_dialog() -> rx.Component:
 
 
 def export_dialog() -> rx.Component:
-    """Render the export-to-folder dialog."""
-    return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button(
-                "Export to folder",
-                aria_label="Export PyPSA network to folder",
-                title="Export PyPSA network to folder",
-                variant="soft",
-            )
+    """Render the export-to-folder toolbar control."""
+    return rx.button(
+        "Export to folder",
+        aria_label="Export PyPSA network to folder",
+        title="Export PyPSA network to folder",
+        on_click=State.choose_export_folder_and_export,
+        variant="soft",
+    )
+
+
+def save_loaded_network_button() -> rx.Component:
+    """Render a save button for networks loaded from a local CSV folder."""
+    return rx.cond(
+        State.save_network_folder != "",
+        rx.button(
+            rx.cond(State.operation_kind == "save", "Saving...", "Save network"),
+            aria_label="Save PyPSA network",
+            title=State.save_network_folder,
+            on_click=State.save_canvas_network_to_loaded_folder,
+            disabled=State.operation_kind == "save",
+            variant="solid",
         ),
-        rx.dialog.content(
-            rx.dialog.title("Export PyPSA network"),
-            rx.dialog.description(
-                "Choose the folder where the PyPSA CSV files will be written.",
+        rx.fragment(),
+    )
+
+
+def network_data_button() -> rx.Component:
+    """Render the toolbar button for the network data dialog."""
+    return rx.button(
+        "Network Data",
+        aria_label="Open network data",
+        title="Open editable network data",
+        on_click=State.open_network_data_dialog,
+        variant="soft",
+    )
+
+
+def network_data_tab_trigger(tab: rx.Var[NetworkDataTab]) -> rx.Component:
+    """Render one Network Data component tab trigger."""
+    return rx.tabs.trigger(
+        rx.hstack(
+            rx.text(tab["label"], size="2"),
+            rx.badge(tab["row_count"].to(str), variant="soft", size="1"),
+            spacing="1",
+            align="center",
+        ),
+        value=tab["component"],
+    )
+
+
+def network_data_header_cell(column: rx.Var[NetworkDataColumn]) -> rx.Component:
+    """Render one Network Data table header cell."""
+    return rx.table.column_header_cell(
+        rx.hstack(
+            rx.text(
+                column["name"],
                 size="2",
-                color_scheme="gray",
+                weight="medium",
+                color=rx.cond(column["is_time_series"], "orange", "inherit"),
             ),
-            rx.vstack(
-                rx.vstack(
-                    rx.text("Destination folder", size="2", weight="medium"),
-                    rx.hstack(
-                        rx.input(
-                            value=State.export_base_folder,
-                            on_change=State.set_export_base_folder,
-                            placeholder="/path/to/folder",
-                            width="100%",
-                        ),
-                        rx.button(
-                            "Select folder",
-                            on_click=State.choose_export_folder,
-                            variant="soft",
-                            min_width="118px",
-                        ),
-                        spacing="2",
-                        width="100%",
+            rx.badge(column["type"], size="1", variant="soft"),
+            spacing="1",
+            align="center",
+        ),
+        min_width="170px",
+        white_space="nowrap",
+    )
+
+
+def network_data_option_item(option: rx.Var[str]) -> rx.Component:
+    """Render one Network Data select option."""
+    return rx.select.item(option, value=option)
+
+
+def network_data_bus_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
+    """Render a bus reference selector in the Network Data grid."""
+    return rx.select.root(
+        rx.select.trigger(placeholder="Select bus", width="100%"),
+        rx.select.content(
+            rx.select.group(
+                rx.foreach(State.canvas_bus_names, network_data_option_item),
+            ),
+        ),
+        value=cell["value"].to(str),
+        on_change=lambda value: State.update_network_data_cell(
+            cell["component"],
+            cell["row_id"],
+            cell["row_index"],
+            cell["attr_name"],
+            value,
+        ),
+        width="100%",
+    )
+
+
+def network_data_option_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
+    """Render an option selector in the Network Data grid."""
+    return rx.select.root(
+        rx.select.trigger(placeholder="Select value", width="100%"),
+        rx.select.content(
+            rx.select.group(
+                rx.foreach(cell["options"], network_data_option_item),
+            ),
+        ),
+        value=cell["value"].to(str),
+        on_change=lambda value: State.update_network_data_cell(
+            cell["component"],
+            cell["row_id"],
+            cell["row_index"],
+            cell["attr_name"],
+            value,
+        ),
+        width="100%",
+    )
+
+
+def network_data_text_input(cell: rx.Var[NetworkDataCell]) -> rx.Component:
+    """Render a text/number input in the Network Data grid."""
+    return rx.input(
+        value=cell["value"].to(str),
+        type=rx.cond(cell["input_type"] == "number", "number", "text"),
+        on_change=lambda value: State.update_network_data_cell(
+            cell["component"],
+            cell["row_id"],
+            cell["row_index"],
+            cell["attr_name"],
+            value,
+        ),
+        on_blur=lambda value: State.commit_network_data_reference(
+            cell["component"],
+            cell["attr_name"],
+            value,
+        ),
+        width="100%",
+        min_width="150px",
+    )
+
+
+def network_data_cell_control(cell: rx.Var[NetworkDataCell]) -> rx.Component:
+    """Render the appropriate Network Data cell editor."""
+    return rx.cond(
+        cell["input_type"] == "boolean",
+        rx.checkbox(
+            checked=cell["value"].to(bool),
+            on_change=lambda value: State.update_network_data_cell(
+                cell["component"],
+                cell["row_id"],
+                cell["row_index"],
+                cell["attr_name"],
+                value,
+            ),
+        ),
+        rx.cond(
+            cell["is_bus_reference"],
+            network_data_bus_select(cell),
+            rx.cond(
+                cell["input_type"] == "select",
+                network_data_option_select(cell),
+                network_data_text_input(cell),
+            ),
+        ),
+    )
+
+
+def network_data_cell(cell: rx.Var[NetworkDataCell]) -> rx.Component:
+    """Render one editable Network Data table cell."""
+    return rx.table.cell(
+        rx.hstack(
+            network_data_cell_control(cell),
+            rx.cond(
+                cell["is_time_series"],
+                rx.button(
+                    rx.icon("table-2", size=14),
+                    aria_label="Edit time series",
+                    title="Edit time series",
+                    on_click=lambda: State.open_network_data_time_series_attr(
+                        cell["component"],
+                        cell["row_id"],
+                        cell["row_index"],
+                        cell["attr_name"],
                     ),
-                    spacing="1",
-                    align="stretch",
-                    width="100%",
+                    variant="soft",
+                    size="1",
+                    flex_shrink="0",
                 ),
-                rx.cond(
-                    State.export_error != "",
-                    rx.text(State.export_error, size="2", color_scheme="red"),
-                    rx.fragment(),
+                rx.fragment(),
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+        ),
+        min_width="190px",
+    )
+
+
+def network_data_row(row: rx.Var[NetworkDataRow]) -> rx.Component:
+    """Render one Network Data table row."""
+    return rx.table.row(
+        rx.table.row_header_cell(
+            rx.input(
+                value=row["name"],
+                placeholder="name",
+                on_change=lambda value: State.update_network_data_row_name(
+                    row["component"],
+                    row["row_id"],
+                    row["row_index"],
+                    value,
                 ),
-                rx.hstack(
-                    rx.dialog.close(
-                        rx.button("Cancel", variant="soft", color_scheme="gray")
+                width="100%",
+                min_width="180px",
+            ),
+            min_width="190px",
+            position="sticky",
+            left="0",
+            background="var(--color-panel-solid)",
+            z_index="1",
+        ),
+        rx.foreach(row["cells"], network_data_cell),
+    )
+
+
+def network_data_table(tab: rx.Var[NetworkDataTab]) -> rx.Component:
+    """Render one Network Data component table."""
+    return rx.vstack(
+        rx.text(
+            rx.cond(
+                tab["row_count"] == 0,
+                "No rows for this component.",
+                "",
+            ),
+            size="2",
+            color_scheme="gray",
+        ),
+        rx.box(
+            rx.table.root(
+                rx.table.header(
+                    rx.table.row(
+                        rx.table.column_header_cell(
+                            "Name",
+                            min_width="190px",
+                            position="sticky",
+                            left="0",
+                            background="var(--color-panel-solid)",
+                            z_index="2",
+                        ),
+                        rx.foreach(tab["columns"], network_data_header_cell),
                     ),
+                ),
+                rx.table.body(rx.foreach(tab["rows"], network_data_row)),
+                variant="surface",
+                size="2",
+                width="100%",
+                min_width="max-content",
+            ),
+            max_height="62vh",
+            max_width="100%",
+            overflow_x="auto",
+            overflow_y="auto",
+        ),
+        spacing="3",
+        align="stretch",
+        width="100%",
+    )
+
+
+def network_data_tab_content(tab: rx.Var[NetworkDataTab]) -> rx.Component:
+    """Render one Network Data tab content panel."""
+    return rx.tabs.content(
+        network_data_table(tab),
+        value=tab["component"],
+        width="100%",
+        min_height="0",
+    )
+
+
+def network_data_dialog() -> rx.Component:
+    """Render the editable whole-network data dialog."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.hstack(
+                rx.dialog.title("Network Data"),
+                rx.dialog.close(
                     rx.button(
-                        "Export",
-                        on_click=State.export_canvas_network,
-                    ),
-                    justify="end",
-                    width="100%",
+                        rx.icon("x", size=16),
+                        aria_label="Close network data",
+                        title="Close",
+                        variant="ghost",
+                        size="2",
+                    )
                 ),
-                spacing="3",
-                align="stretch",
+                justify="between",
+                align="center",
                 width="100%",
             ),
-            max_width="520px",
+            rx.tabs.root(
+                rx.tabs.list(
+                    rx.foreach(State.network_data_tabs, network_data_tab_trigger),
+                    overflow_x="auto",
+                    width="100%",
+                    flex_wrap="nowrap",
+                ),
+                rx.foreach(State.network_data_tabs, network_data_tab_content),
+                value=State.network_data_active_component,
+                on_change=State.set_network_data_active_component,
+                width="100%",
+                margin_top="12px",
+            ),
+            width="96vw",
+            max_width="1800px",
         ),
-        open=State.is_export_dialog_open,
-        on_open_change=State.set_export_dialog_open,
+        open=State.is_network_data_dialog_open,
+        on_open_change=State.set_network_data_dialog_open,
     )
 
 
@@ -1179,50 +2173,56 @@ def demo_styles() -> rx.Component:
           html,
           body {
             background:
-              radial-gradient(circle at 22% 0%, color-mix(in srgb, var(--accent-3) 26%, transparent) 0, transparent 34%),
-              linear-gradient(180deg, var(--gray-2), var(--gray-1) 45%, var(--gray-2));
+              radial-gradient(circle at 22% 0%, color-mix(in srgb, var(--accent-3) 22%, transparent) 0, transparent 34%),
+              linear-gradient(180deg, var(--gray-4), var(--gray-3) 45%, var(--gray-4));
           }
           .app-menu,
           .app-footer {
             backdrop-filter: blur(14px);
-            background: color-mix(in srgb, var(--color-panel-solid) 88%, transparent) !important;
+            background: #1f4e5f !important;
+            color: #f8fafc;
           }
           .app-menu {
-            box-shadow: 0 1px 0 color-mix(in srgb, var(--gray-8) 18%, transparent);
+            box-shadow: 0 1px 0 color-mix(in srgb, #0f2f3a 48%, transparent);
+          }
+          .app-menu :where(button, a, [role="button"]),
+          .app-footer :where(button, a, [role="button"]) {
+            color: #f8fafc;
           }
           .brand-title {
             letter-spacing: 0;
           }
           .app-content {
-            background: transparent;
+            background: var(--gray-4);
           }
           .app-tabs [role="tablist"] {
             width: fit-content;
             margin-bottom: 8px;
+            flex-shrink: 0;
             border: 1px solid var(--gray-5);
             border-radius: 8px;
             padding: 2px;
-            background: color-mix(in srgb, var(--color-panel-solid) 78%, transparent);
+            background: color-mix(in srgb, var(--gray-3) 72%, var(--color-panel-solid));
             box-shadow: 0 8px 22px color-mix(in srgb, var(--gray-12) 7%, transparent);
           }
           .builder-shell {
             border-color: color-mix(in srgb, var(--gray-7) 72%, transparent) !important;
             border-radius: 10px !important;
-            background: var(--color-panel-solid);
+            background: var(--gray-3);
             box-shadow:
               0 18px 45px color-mix(in srgb, var(--gray-12) 10%, transparent),
               0 1px 0 color-mix(in srgb, white 55%, transparent) inset;
           }
           .builder-toolbar {
             min-height: 46px;
-            background: linear-gradient(180deg, var(--gray-2), var(--color-panel-solid));
+            background: linear-gradient(180deg, var(--gray-4), var(--gray-3));
           }
           .network-name-input input {
             font-weight: 600;
           }
           .palette-sidebar,
           .inspector-sidebar {
-            background: color-mix(in srgb, var(--gray-2) 72%, var(--color-panel-solid));
+            background: var(--gray-4);
           }
           .palette-sidebar {
             padding: 6px !important;
@@ -1231,23 +2231,25 @@ def demo_styles() -> rx.Component:
             padding: 14px !important;
           }
           .canvas-panel {
-            background: var(--gray-1);
+            background: var(--gray-3);
           }
           .react-flow-shell {
+            position: relative;
             width: 100%;
             height: 680px;
             background:
               linear-gradient(var(--gray-4) 1px, transparent 1px),
               linear-gradient(90deg, var(--gray-4) 1px, transparent 1px),
               radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-3) 22%, transparent), transparent 42%),
-              var(--gray-1);
+              var(--gray-3);
             background-size: 28px 28px, 28px 28px, 100% 100%, 100% 100%;
           }
           .schematic-node {
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             gap: 3px;
             width: 100%;
             height: 100%;
@@ -1255,6 +2257,7 @@ def demo_styles() -> rx.Component:
             border-radius: 6px;
             background: transparent;
             cursor: grab;
+            overflow: visible;
             transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
           }
           .schematic-node[data-selected="true"] {
@@ -1263,54 +2266,100 @@ def demo_styles() -> rx.Component:
             box-shadow: 0 0 0 2px var(--accent-5), 0 10px 24px color-mix(in srgb, var(--accent-9) 20%, transparent);
           }
           .schematic-node:hover {
-            border-color: var(--accent-9);
-            background: color-mix(in srgb, var(--accent-3) 70%, transparent);
-            box-shadow: 0 0 0 2px var(--accent-5);
+            border-color: #2563eb;
+            background: #dbeafe;
+            box-shadow: 0 0 0 3px color-mix(in srgb, #60a5fa 58%, transparent);
             transform: translateY(-1px);
           }
-          .schematic-node[data-branch-armed="true"] {
-            border-color: var(--accent-7);
-            background: color-mix(in srgb, var(--accent-2) 75%, transparent);
+          .schematic-node[data-is-bus="true"]:hover {
+            transform: none;
           }
-          .schematic-node[data-branch-armed="true"]:hover {
-            border-color: var(--accent-10);
-            background: var(--accent-3);
-            box-shadow: 0 0 0 3px var(--accent-5);
+          .schematic-node[data-is-bus="true"] {
+            justify-content: flex-start;
+          }
+          .schematic-node[data-branch-armed="true"] {
+            cursor: crosshair;
+          }
+          .schematic-node[data-branch-hover="true"] {
+            border-color: #2563eb;
+            background: #dbeafe;
+            box-shadow: 0 0 0 3px color-mix(in srgb, #60a5fa 58%, transparent);
           }
           .schematic-node[data-branch-start="true"] {
             border-color: var(--green-9);
             background: var(--green-3);
             box-shadow: 0 0 0 3px var(--green-5);
           }
-          .schematic-node[data-branch-connected="true"] {
-            border-color: #facc15;
-            background: #fef9c3;
-            box-shadow: 0 0 0 3px #fde047;
+          .drag-preview-node {
+            position: absolute;
+            z-index: 20;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid var(--accent-9);
+            border-radius: 6px;
+            background: color-mix(in srgb, var(--accent-3) 82%, white);
+            color: var(--gray-12);
+            font-size: 10px;
+            font-weight: 700;
+            box-shadow: 0 10px 28px color-mix(in srgb, var(--gray-12) 18%, transparent);
+            opacity: 0.88;
+            transform: translate(-50%, -50%);
           }
-          .schematic-node[data-hover-connected="true"] {
-            border-color: #facc15;
-            background: #fef9c3;
-            box-shadow: 0 0 0 3px #fde047;
-          }
-          .schematic-node[data-connection-target="available"] {
-            border-color: var(--accent-7);
-            background: color-mix(in srgb, var(--accent-2) 70%, transparent);
-          }
-          .schematic-node[data-connection-target="hover"] {
-            border-color: var(--green-9);
-            background: var(--green-3);
-            box-shadow: 0 0 0 3px var(--green-5);
+          .react-flow-shell[data-armed-component="true"] {
+            cursor: crosshair;
           }
           .schematic-node-symbol {
             display: block;
             width: 100%;
-            height: calc(100% - 18px);
+            flex: 0 0 auto;
             min-height: 0;
+          }
+          .schematic-bus-symbol {
+            display: block;
+            width: 3px;
+            min-height: 72px;
+            border-radius: 999px;
+            background: var(--gray-12);
+            flex: 0 0 auto;
+          }
+          .schematic-terminal {
+            position: absolute;
+            z-index: 2;
+            width: 13px;
+            height: 2px;
+            background: var(--gray-12);
+            pointer-events: none;
+            transform: translateY(-50%);
+          }
+          .schematic-terminal::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: var(--gray-12);
+            transform: translate(-50%, -50%);
+          }
+          .schematic-terminal-left {
+            left: 0;
+          }
+          .schematic-terminal-left::after {
+            left: 0;
+          }
+          .schematic-terminal-right {
+            right: 0;
+          }
+          .schematic-terminal-right::after {
+            left: 100%;
           }
           .schematic-node-symbol svg {
             display: block;
             width: 100%;
             height: 100%;
+            overflow: visible;
           }
           .schematic-node-label {
             max-width: 96px;
@@ -1328,6 +2377,23 @@ def demo_styles() -> rx.Component:
             border: 0;
             background: transparent;
             opacity: 0;
+          }
+          .schematic-edge-label {
+            position: absolute;
+            z-index: 5;
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: var(--color-panel-solid);
+            color: var(--gray-12);
+            font-size: 10px;
+            line-height: 14px;
+            white-space: nowrap;
+            pointer-events: none;
+            transform-origin: center;
+            box-shadow: 0 1px 3px color-mix(in srgb, var(--gray-12) 10%, transparent);
+          }
+          .schematic-edge-label[data-selected="true"] {
+            outline: 1px solid var(--accent-8);
           }
           [data-is-root-theme="dark"] .schematic-node-symbol,
           [data-theme="dark"] .schematic-node-symbol,
@@ -1564,27 +2630,212 @@ def operation_dialog() -> rx.Component:
 
 
 def other_component_dialog() -> rx.Component:
-    """Render the placeholder dialog for unsupported sidebar components."""
+    """Render dialogs for non-canvas sidebar components."""
     return rx.dialog.root(
         rx.dialog.content(
             rx.dialog.title(State.other_component_dialog_title),
-            rx.dialog.description(
-                "List manger to be added",
-                size="2",
-                color_scheme="gray",
+            rx.cond(
+                State.other_component_dialog_kind == "standard_type",
+                standard_type_table(),
+                rx.cond(
+                    State.other_component_dialog_kind == "csv_table",
+                    other_csv_table_editor(),
+                    rx.dialog.description(
+                        "List manager to be added",
+                        size="2",
+                        color_scheme="gray",
+                    ),
+                ),
+            ),
+            rx.cond(
+                State.other_table_error != "",
+                rx.text(State.other_table_error, size="2", color_scheme="red"),
+                rx.fragment(),
             ),
             rx.flex(
+                rx.cond(
+                    State.other_component_dialog_kind == "csv_table",
+                    rx.hstack(
+                        rx.upload(
+                            rx.button("Upload CSV", variant="soft"),
+                            id=EDITABLE_CSV_UPLOAD_ID,
+                            multiple=False,
+                            max_files=1,
+                            accept={"text/csv": [".csv"]},
+                            on_drop=State.upload_editable_csv(
+                                rx.upload_files(upload_id=EDITABLE_CSV_UPLOAD_ID)
+                            ),
+                            border="none",
+                            padding="0",
+                            width="fit-content",
+                        ),
+                        rx.button(
+                            "Add row",
+                            on_click=State.add_other_table_row,
+                            variant="soft",
+                        ),
+                        spacing="2",
+                    ),
+                    rx.fragment(),
+                ),
                 rx.dialog.close(
                     rx.button("OK", on_click=State.close_other_component_dialog)
                 ),
+                spacing="2",
                 justify="end",
                 width="100%",
                 margin_top="16px",
             ),
-            max_width="360px",
+            width="96vw",
+            max_width="1600px",
         ),
         open=State.is_other_component_dialog_open,
         on_open_change=State.set_other_component_dialog_open,
+    )
+
+
+def other_csv_header_cell(column: rx.Var[str]) -> rx.Component:
+    """Render one editable supplemental CSV table header."""
+    return rx.table.column_header_cell(
+        column,
+        min_width="150px",
+        white_space="nowrap",
+    )
+
+
+def other_csv_cell(cell: rx.Var[OtherTableCell]) -> rx.Component:
+    """Render one editable supplemental CSV table value."""
+    return rx.table.cell(
+        rx.input(
+            value=cell["value"],
+            on_change=lambda value: State.update_other_table_cell(
+                cell["row_index"],
+                cell["column"],
+                value,
+            ),
+            width="100%",
+            min_width="150px",
+        ),
+        min_width="150px",
+    )
+
+
+def other_csv_row(row: rx.Var[OtherTableRow]) -> rx.Component:
+    """Render one editable supplemental CSV table row."""
+    return rx.table.row(
+        rx.table.row_header_cell(
+            rx.input(
+                value=row["id"],
+                placeholder="row id",
+                on_change=lambda value: State.update_other_table_row_id(
+                    row["row_index"],
+                    value,
+                ),
+                width="100%",
+                min_width="180px",
+            ),
+            min_width="180px",
+        ),
+        rx.foreach(row["cells"], other_csv_cell),
+        rx.table.cell(
+            rx.button(
+                rx.icon("trash-2", size=16),
+                aria_label="Delete row",
+                title="Delete row",
+                on_click=lambda: State.delete_other_table_row(row["row_index"]),
+                variant="soft",
+                color_scheme="red",
+                size="1",
+            ),
+            min_width="70px",
+        ),
+    )
+
+
+def other_csv_table_editor() -> rx.Component:
+    """Render an editable supplemental CSV table."""
+    return rx.box(
+        rx.table.root(
+            rx.table.header(
+                rx.table.row(
+                    rx.table.column_header_cell(
+                        "Name",
+                        min_width="180px",
+                        white_space="nowrap",
+                    ),
+                    rx.foreach(
+                        State.other_table_dialog_columns,
+                        other_csv_header_cell,
+                    ),
+                    rx.table.column_header_cell(""),
+                ),
+            ),
+            rx.table.body(rx.foreach(State.other_table_dialog_rows, other_csv_row)),
+            variant="surface",
+            size="2",
+            width="100%",
+            min_width="max-content",
+        ),
+        max_height="520px",
+        max_width="100%",
+        overflow_x="auto",
+        overflow_y="auto",
+        margin_top="12px",
+    )
+
+
+def standard_type_row(row: rx.Var[StandardTypeRow]) -> rx.Component:
+    """Render one standard line or transformer type row."""
+    return rx.table.row(
+        rx.table.row_header_cell(
+            rx.text(row["name"], weight="medium", white_space="nowrap"),
+            min_width="220px",
+        ),
+        rx.foreach(row["values"], standard_type_value_cell),
+    )
+
+
+def standard_type_header_cell(column: rx.Var[str]) -> rx.Component:
+    """Render a standard type parameter table header."""
+    return rx.table.column_header_cell(
+        column,
+        min_width="120px",
+        white_space="nowrap",
+    )
+
+
+def standard_type_value_cell(value: rx.Var[str]) -> rx.Component:
+    """Render one standard type parameter value."""
+    return rx.table.cell(
+        rx.text(value, size="2", white_space="nowrap"),
+        min_width="120px",
+    )
+
+
+def standard_type_table() -> rx.Component:
+    """Render the selected standard type table."""
+    return rx.box(
+        rx.table.root(
+            rx.table.header(
+                rx.table.row(
+                    rx.table.column_header_cell("Name"),
+                    rx.foreach(
+                        State.standard_type_dialog_columns,
+                        standard_type_header_cell,
+                    ),
+                ),
+            ),
+            rx.table.body(rx.foreach(State.standard_type_dialog_rows, standard_type_row)),
+            variant="surface",
+            size="2",
+            width="100%",
+            min_width="max-content",
+        ),
+        max_height="520px",
+        max_width="100%",
+        overflow_x="auto",
+        overflow_y="auto",
+        margin_top="12px",
     )
 
 
@@ -1633,6 +2884,16 @@ def model_sections(
         component
         for component in components
         if not has_bus_attr(component) and component.component != "buses"
+    ]
+    standard_type_components = [
+        component
+        for component in other_components
+        if component.component in {"line_types", "transformer_types"}
+    ]
+    other_components = [
+        component
+        for component in other_components
+        if component.component not in {"line_types", "transformer_types"}
     ]
     delayed_primary_components = {
         "global_constraints",
@@ -1691,6 +2952,14 @@ def model_sections(
         "other": [
             component_to_row(component, loaded_network) for component in other_components
         ],
+        "standard_types": [
+            component_to_row(component, loaded_network)
+            for component in standard_type_components
+        ],
+        "snapshot_tables": [
+            icon_row("snapshots", "Snapshots"),
+            icon_row("investment_periods", "Investment Periods"),
+        ],
     }
 
 
@@ -1705,11 +2974,18 @@ class State(rx.State):
     network_component_rows: list[NetworkObjectComponentRow] = []
     network_connection_rows: list[NetworkObjectConnectionRow] = []
     canvas_bus_names: list[str] = []
+    router_options: list[RouterOption] = ROUTER_OPTIONS
+    selected_router_name: str = JS_ELK_ROUTER_NAME
     route_version: int = 0
     selected_node_id: str = ""
     selected_component_name: str = ""
     selected_attr_rows: list[DiagramAttr] = []
     component_counters: dict[str, int] = {}
+    canvas_undo_stack: list[CanvasSnapshot] = []
+    canvas_redo_stack: list[CanvasSnapshot] = []
+    can_undo_canvas: bool = False
+    can_redo_canvas: bool = False
+    armed_component: str = ""
     armed_branch_component: str = ""
     pending_branch_node_id: str = ""
     branch_bus0_node_id: str = ""
@@ -1720,6 +2996,7 @@ class State(rx.State):
     network_load_status: str = ""
     network_name: str = "PyPSA Network"
     network_file_path: str = ""
+    save_network_folder: str = ""
     export_base_folder: str = str(Path.cwd() / "exports")
     export_message: str = ""
     export_error: str = ""
@@ -1732,24 +3009,775 @@ class State(rx.State):
     operation_retry_load: bool = False
     is_other_component_dialog_open: bool = False
     other_component_dialog_title: str = ""
+    other_component_dialog_kind: str = ""
+    standard_type_dialog_columns: list[str] = []
+    standard_type_dialog_rows: list[StandardTypeRow] = []
+    other_csv_tables: dict[str, OtherCsvTable] = {}
+    time_series_tables: dict[str, OtherCsvTable] = {}
+    other_table_dialog_component: str = ""
+    other_table_dialog_columns: list[str] = []
+    other_table_dialog_rows: list[OtherTableRow] = []
+    other_table_error: str = ""
+    time_series_dialog_key: str = ""
+    time_series_dialog_column: str = ""
+    is_network_data_dialog_open: bool = False
+    network_data_active_component: str = "buses"
+    network_data_tabs: list[NetworkDataTab] = []
 
     def load_default_model(self) -> None:
         """Reset catalog metadata to the empty PyPSA network defaults."""
         self.sections = model_sections(NETWORK_MODEL)
         self.loaded_source = ""
+        self.save_network_folder = ""
+        self.other_csv_tables = {}
+        self.time_series_tables = {}
+        self.is_network_data_dialog_open = False
+        self.network_data_tabs = []
 
     def open_other_component_dialog(self, title: str) -> None:
         """Open the placeholder dialog for an unsupported component."""
-        self.other_component_dialog_title = str(title)
+        component_name = str(title)
+        if component_name == "line_types":
+            self.other_component_dialog_title = "Line Types"
+            self.other_component_dialog_kind = "standard_type"
+            self.standard_type_dialog_columns = standard_type_columns(component_name)
+            self.standard_type_dialog_rows = standard_type_rows(component_name)
+        elif component_name == "transformer_types":
+            self.other_component_dialog_title = "Transformer Types"
+            self.other_component_dialog_kind = "standard_type"
+            self.standard_type_dialog_columns = standard_type_columns(component_name)
+            self.standard_type_dialog_rows = standard_type_rows(component_name)
+        elif component_name in CSV_TABLE_COMPONENTS:
+            table = self.other_csv_tables.get(
+                component_name,
+                empty_other_csv_table(component_name),
+            )
+            self.other_csv_tables[component_name] = table
+            self.other_component_dialog_title = (
+                NETWORK_MODEL.component(component_name).pypsa_name
+                if component_name in NETWORK_MODEL.all_components
+                else "Investment Periods"
+                if component_name == "investment_periods"
+                else "Snapshots"
+            )
+            self.other_component_dialog_kind = "csv_table"
+            self.other_table_dialog_component = component_name
+            self.other_table_dialog_columns = table["columns"]
+            self.other_table_dialog_rows = table["rows"]
+            self.other_table_error = ""
+        else:
+            self.other_component_dialog_title = component_name
+            self.other_component_dialog_kind = ""
+            self.standard_type_dialog_columns = []
+            self.standard_type_dialog_rows = []
         self.is_other_component_dialog_open = True
 
     def close_other_component_dialog(self) -> None:
         """Close the placeholder dialog for unsupported components."""
         self.is_other_component_dialog_open = False
+        self.other_component_dialog_kind = ""
+        self.standard_type_dialog_columns = []
+        self.standard_type_dialog_rows = []
+        self.other_table_dialog_component = ""
+        self.other_table_dialog_columns = []
+        self.other_table_dialog_rows = []
+        self.other_table_error = ""
+        self.time_series_dialog_key = ""
+        self.time_series_dialog_column = ""
 
     def set_other_component_dialog_open(self, value: bool) -> None:
         """Update whether the unsupported component dialog is open."""
         self.is_other_component_dialog_open = value
+        if not value:
+            self.other_component_dialog_kind = ""
+            self.standard_type_dialog_columns = []
+            self.standard_type_dialog_rows = []
+            self.other_table_dialog_component = ""
+            self.other_table_dialog_columns = []
+            self.other_table_dialog_rows = []
+            self.other_table_error = ""
+            self.time_series_dialog_key = ""
+            self.time_series_dialog_column = ""
+
+    def _sync_other_table_dialog(self) -> None:
+        """Refresh editable supplemental CSV table dialog rows from state."""
+        if self.time_series_dialog_key:
+            table = self.time_series_tables.get(self.time_series_dialog_key)
+            if table is None:
+                return
+            column = self.time_series_dialog_column
+            self.other_table_dialog_columns = [column]
+            rows: list[OtherTableRow] = []
+            for row in table["rows"]:
+                value = ""
+                for cell in row["cells"]:
+                    if cell["column"] == column:
+                        value = cell["value"]
+                        break
+                rows.append(
+                    {
+                        "row_index": row["row_index"],
+                        "id": row["id"],
+                        "cells": [
+                            {
+                                "row_index": row["row_index"],
+                                "column": column,
+                                "value": value,
+                            }
+                        ],
+                    }
+                )
+            self.other_table_dialog_rows = rows
+            return
+        if not self.other_table_dialog_component:
+            return
+        table = self.other_csv_tables.get(self.other_table_dialog_component)
+        if table is None:
+            return
+        self.other_table_dialog_columns = table["columns"]
+        self.other_table_dialog_rows = table["rows"]
+        self._refresh_selected_attr_rows()
+
+    def _load_network_data_table_from_source(self, component_name: str) -> OtherCsvTable:
+        """Load a non-canvas component table from the current folder or PyPSA defaults."""
+        source_text = self.save_network_folder or self.loaded_source
+        if source_text:
+            source = Path(source_text).expanduser()
+            csv_path = source / network_data_file_name(component_name)
+            if source.is_dir() and csv_path.exists():
+                data_frame = pd.read_csv(csv_path, index_col=0, dtype=str).fillna("")
+                return dataframe_to_network_data_table(component_name, data_frame)
+
+        try:
+            data_frame = pypsa.Network().components[component_name].static
+        except Exception:
+            return empty_network_data_table(component_name)
+        return dataframe_to_network_data_table(
+            component_name,
+            data_frame,
+            dirty=False,
+            loaded=False,
+        )
+
+    def _ensure_network_data_table(self, component_name: str) -> OtherCsvTable:
+        """Return the editable backing table for a non-canvas Network Data tab."""
+        table = self.other_csv_tables.get(component_name)
+        if table is None:
+            table = self._load_network_data_table_from_source(component_name)
+            self.other_csv_tables[component_name] = table
+        for column in network_data_columns(component_name):
+            if column["name"] not in table["columns"]:
+                table["columns"].append(column["name"])
+        return table
+
+    def _network_data_canvas_rows(self, component_name: str) -> list[NetworkDataRow]:
+        """Build Network Data rows from diagram nodes."""
+        columns = network_data_columns(component_name)
+        rows: list[NetworkDataRow] = []
+        component = NETWORK_MODEL.component(component_name)
+        for row_index, node in enumerate(
+            node for node in self.diagram_nodes if node["component"] == component_name
+        ):
+            attrs = node.get("attrs", {})
+            row_name = str(attrs.get("name") or node["id"])
+            cells: list[NetworkDataCell] = []
+            for column in columns:
+                attr_name = column["name"]
+                attr = component.attrs[attr_name]
+                cells.append(
+                    {
+                        "component": component_name,
+                        "row_id": node["id"],
+                        "row_index": row_index,
+                        "attr_name": attr_name,
+                        "value": attrs.get(attr_name, attr.default),
+                        "type": column["type"],
+                        "input_type": column["input_type"],
+                        "is_time_series": column["is_time_series"],
+                        "is_bus_reference": column["is_bus_reference"],
+                        "options": column["options"],
+                    }
+                )
+            rows.append(
+                {
+                    "component": component_name,
+                    "row_id": node["id"],
+                    "row_index": row_index,
+                    "name": row_name,
+                    "cells": cells,
+                }
+            )
+        return rows
+
+    def _network_data_table_rows(self, component_name: str) -> list[NetworkDataRow]:
+        """Build Network Data rows from a non-canvas editable table."""
+        table = self._ensure_network_data_table(component_name)
+        columns = network_data_columns(component_name)
+        rows: list[NetworkDataRow] = []
+        for row in table["rows"]:
+            values_by_column = {
+                str(cell["column"]): cell["value"]
+                for cell in row["cells"]
+            }
+            cells: list[NetworkDataCell] = []
+            for column in columns:
+                attr_name = column["name"]
+                cells.append(
+                    {
+                        "component": component_name,
+                        "row_id": str(row["id"]),
+                        "row_index": int(row["row_index"]),
+                        "attr_name": attr_name,
+                        "value": values_by_column.get(attr_name, ""),
+                        "type": column["type"],
+                        "input_type": column["input_type"],
+                        "is_time_series": column["is_time_series"],
+                        "is_bus_reference": column["is_bus_reference"],
+                        "options": column["options"],
+                    }
+                )
+            rows.append(
+                {
+                    "component": component_name,
+                    "row_id": str(row["id"]),
+                    "row_index": int(row["row_index"]),
+                    "name": str(row["id"]),
+                    "cells": cells,
+                }
+            )
+        return rows
+
+    def _network_data_rows_for_component(self, component_name: str) -> list[NetworkDataRow]:
+        """Build rows for one Network Data component tab."""
+        if is_canvas_data_component(component_name):
+            return self._network_data_canvas_rows(component_name)
+        return self._network_data_table_rows(component_name)
+
+    def _sync_network_data_dialog(self) -> None:
+        """Refresh the whole-network data dialog tables from current state."""
+        tabs: list[NetworkDataTab] = []
+        for component_name, component in NETWORK_MODEL.all_components.items():
+            if component_name in {"line_types", "transformer_types"}:
+                continue
+            columns = network_data_columns(component_name)
+            rows = self._network_data_rows_for_component(component_name)
+            tabs.append(
+                {
+                    "component": component_name,
+                    "label": component.pypsa_name,
+                    "columns": columns,
+                    "rows": rows,
+                    "row_count": len(rows),
+                }
+            )
+        self.network_data_tabs = tabs
+        available_components = {tab["component"] for tab in tabs}
+        if self.network_data_active_component not in available_components:
+            self.network_data_active_component = tabs[0]["component"] if tabs else ""
+
+    def open_network_data_dialog(self) -> None:
+        """Open the editable whole-network data dialog."""
+        self._sync_network_data_dialog()
+        self.is_network_data_dialog_open = True
+
+    def set_network_data_dialog_open(self, value: bool) -> None:
+        """Set the Network Data dialog open state."""
+        self.is_network_data_dialog_open = bool(value)
+        if value:
+            self._sync_network_data_dialog()
+
+    def set_network_data_active_component(self, value: str) -> None:
+        """Set the active component tab in the Network Data dialog."""
+        component_name = str(value)
+        if component_name in NETWORK_MODEL.all_components:
+            self.network_data_active_component = component_name
+
+    def _row_name_for_network_data(
+        self,
+        component_name: str,
+        row_id: str,
+        row_index: int,
+    ) -> str:
+        """Return the PyPSA row name for a Network Data row."""
+        if is_canvas_data_component(component_name):
+            for node in self.diagram_nodes:
+                if node["id"] == row_id:
+                    return str(node["attrs"].get("name") or node["id"])
+            return row_id
+        table = self._ensure_network_data_table(component_name)
+        for row in table["rows"]:
+            if row["row_index"] == int(row_index):
+                return str(row["id"])
+        return row_id
+
+    def _cascade_reference_rename(
+        self,
+        component_name: str,
+        old_name: str,
+        new_name: str,
+    ) -> None:
+        """Cascade known row-name references after a Network Data rename."""
+        if not old_name or old_name == new_name:
+            return
+        reference_attrs: list[str] = []
+        target_components: set[str] | None = None
+        if component_name == "buses":
+            reference_attrs = ["bus", "bus0", "bus1", "bus2", "bus3", "bus4"]
+        elif component_name == "carriers":
+            reference_attrs = ["carrier"]
+        elif component_name == "sub_networks":
+            reference_attrs = ["sub_network"]
+        elif component_name == "line_types":
+            reference_attrs = ["type"]
+            target_components = {"lines"}
+        elif component_name == "transformer_types":
+            reference_attrs = ["type"]
+            target_components = {"transformers"}
+        if not reference_attrs:
+            return
+
+        for node in self.diagram_nodes:
+            if target_components is not None and node["component"] not in target_components:
+                continue
+            attrs = node.get("attrs", {})
+            changed = False
+            for attr_name in reference_attrs:
+                if str(attrs.get(attr_name, "")) == old_name:
+                    attrs[attr_name] = new_name
+                    changed = True
+            if changed:
+                component = NETWORK_MODEL.component(node["component"])
+                node["attr_rows"] = diagram_attr_rows(component, attrs)
+
+    def update_network_data_row_name(
+        self,
+        component_name: str,
+        row_id: str,
+        row_index: int,
+        value: str,
+    ) -> None:
+        """Update a row name from the Network Data dialog."""
+        component_name = str(component_name)
+        new_name = str(value)
+        if component_name not in NETWORK_MODEL.all_components:
+            return
+        if is_canvas_data_component(component_name):
+            for node in self.diagram_nodes:
+                if node["id"] != str(row_id):
+                    continue
+                old_name = str(node["attrs"].get("name") or node["id"])
+                if old_name == new_name:
+                    return
+                self._push_canvas_history()
+                node["attrs"]["name"] = new_name
+                self._cascade_reference_rename(component_name, old_name, new_name)
+                component = NETWORK_MODEL.component(node["component"])
+                node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
+                self._sync_diagram_model()
+                if self.selected_node_id == node["id"]:
+                    self.selected_attr_rows = self._selected_attr_rows_for_node(node)
+                return
+
+        table = self._ensure_network_data_table(component_name)
+        for row in table["rows"]:
+            if row["row_index"] != int(row_index):
+                continue
+            old_name = str(row["id"])
+            if old_name == new_name:
+                return
+            row["id"] = new_name
+            table["dirty"] = True
+            self._cascade_reference_rename(component_name, old_name, new_name)
+            self._sync_diagram_model()
+            self._sync_network_data_dialog()
+            return
+
+    def update_network_data_cell(
+        self,
+        component_name: str,
+        row_id: str,
+        row_index: int,
+        attr_name: str,
+        value: object,
+    ) -> None:
+        """Update a Network Data cell."""
+        component_name = str(component_name)
+        attr_name = str(attr_name)
+        if component_name not in NETWORK_MODEL.all_components:
+            return
+        component = NETWORK_MODEL.component(component_name)
+        attr = component.attrs.get(attr_name)
+        if attr is None:
+            return
+        if is_canvas_data_component(component_name):
+            for node in self.diagram_nodes:
+                if node["id"] != str(row_id):
+                    continue
+                parsed_value = self._parse_attr_value(value, attr.pypsa_type, attr.python_type)
+                if node["attrs"].get(attr_name) == parsed_value:
+                    return
+                self._push_canvas_history()
+                node["attrs"][attr_name] = parsed_value
+                if attr_name in REFERENCE_ATTR_TABLES:
+                    self._ensure_reference_row(attr_name, parsed_value)
+                node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
+                self._sync_diagram_model()
+                if self.selected_node_id == node["id"]:
+                    self.selected_attr_rows = self._selected_attr_rows_for_node(node)
+                return
+
+        table = self._ensure_network_data_table(component_name)
+        if attr_name not in table["columns"]:
+            table["columns"].append(attr_name)
+        for row in table["rows"]:
+            if row["row_index"] != int(row_index):
+                continue
+            for cell in row["cells"]:
+                if str(cell["column"]) == attr_name:
+                    cell["value"] = str(value)
+                    break
+            else:
+                row["cells"].append(
+                    {
+                        "row_index": int(row_index),
+                        "column": attr_name,
+                        "value": str(value),
+                    }
+                )
+            table["dirty"] = True
+            self._sync_network_data_dialog()
+            return
+
+    def commit_network_data_reference(
+        self,
+        component_name: str,
+        attr_name: str,
+        value: object,
+    ) -> None:
+        """Promote a Network Data reference value into its global CSV table."""
+        del component_name
+        if str(attr_name) in REFERENCE_ATTR_TABLES:
+            self._ensure_reference_row(str(attr_name), value)
+            self._sync_network_data_dialog()
+
+    def _open_time_series_table(
+        self,
+        component_name: str,
+        attr_name: str,
+        pypsa_name: str,
+    ) -> None:
+        """Open the editable time-series table for one component attr and row."""
+        component_name = str(component_name)
+        attr_name = str(attr_name)
+        pypsa_name = str(pypsa_name)
+        key = f"{component_name}:{attr_name}"
+        table = self.time_series_tables.get(key)
+        if table is None:
+            table = {
+                "component": key,
+                "file_name": f"{component_name}-{attr_name}.csv",
+                "columns": [pypsa_name],
+                "rows": [],
+                "index_name": "snapshot",
+                "loaded": False,
+                "dirty": False,
+            }
+            self.time_series_tables[key] = table
+        if pypsa_name not in table["columns"]:
+            table["columns"].append(pypsa_name)
+            for row in table["rows"]:
+                row["cells"].append(
+                    {
+                        "row_index": row["row_index"],
+                        "column": pypsa_name,
+                        "value": "",
+                    }
+                )
+            table["dirty"] = True
+        self.other_component_dialog_title = (
+            f"{component_name}.{attr_name} - {pypsa_name}"
+        )
+        self.other_component_dialog_kind = "csv_table"
+        self.other_table_dialog_component = ""
+        self.time_series_dialog_key = key
+        self.time_series_dialog_column = pypsa_name
+        self.other_table_error = ""
+        self._sync_other_table_dialog()
+        self.is_other_component_dialog_open = True
+
+    def open_network_data_time_series_attr(
+        self,
+        component_name: str,
+        row_id: str,
+        row_index: int,
+        attr_name: str,
+    ) -> None:
+        """Open a time-series table from a Network Data cell."""
+        pypsa_name = self._row_name_for_network_data(
+            str(component_name),
+            str(row_id),
+            int(row_index),
+        )
+        self.is_network_data_dialog_open = False
+        self._open_time_series_table(str(component_name), str(attr_name), pypsa_name)
+
+    def _canvas_snapshot(self) -> CanvasSnapshot:
+        """Return a deep snapshot of undoable canvas state."""
+        return {
+            "diagram_nodes": copy.deepcopy(self.diagram_nodes),
+            "component_counters": copy.deepcopy(self.component_counters),
+            "route_version": self.route_version,
+            "selected_node_id": self.selected_node_id,
+            "armed_component": self.armed_component,
+            "armed_branch_component": self.armed_branch_component,
+            "pending_branch_node_id": self.pending_branch_node_id,
+            "branch_bus0_node_id": self.branch_bus0_node_id,
+        }
+
+    def _set_canvas_history_availability(self) -> None:
+        """Refresh undo/redo button enabled state."""
+        self.can_undo_canvas = bool(self.canvas_undo_stack)
+        self.can_redo_canvas = bool(self.canvas_redo_stack)
+
+    def _clear_canvas_history(self) -> None:
+        """Clear undo and redo stacks."""
+        self.canvas_undo_stack = []
+        self.canvas_redo_stack = []
+        self._set_canvas_history_availability()
+
+    def _push_canvas_history(self) -> None:
+        """Record the current canvas state before a user-visible mutation."""
+        self.canvas_undo_stack.append(self._canvas_snapshot())
+        if len(self.canvas_undo_stack) > CANVAS_HISTORY_LIMIT:
+            self.canvas_undo_stack = self.canvas_undo_stack[-CANVAS_HISTORY_LIMIT:]
+        self.canvas_redo_stack = []
+        self._set_canvas_history_availability()
+
+    def _restore_canvas_snapshot(self, snapshot: CanvasSnapshot) -> None:
+        """Restore canvas state from a history snapshot."""
+        self.diagram_nodes = copy.deepcopy(snapshot["diagram_nodes"])
+        self.component_counters = copy.deepcopy(snapshot["component_counters"])
+        self.route_version = int(snapshot["route_version"])
+        self.armed_component = str(snapshot["armed_component"])
+        self.armed_branch_component = str(snapshot["armed_branch_component"])
+        self.pending_branch_node_id = str(snapshot["pending_branch_node_id"])
+        self.branch_bus0_node_id = str(snapshot["branch_bus0_node_id"])
+        self._sync_diagram_model()
+        self.select_node(str(snapshot["selected_node_id"]))
+
+    def undo_canvas(self) -> None:
+        """Restore the previous undoable canvas state."""
+        if not self.canvas_undo_stack:
+            return
+        snapshot = self.canvas_undo_stack.pop()
+        self.canvas_redo_stack.append(self._canvas_snapshot())
+        if len(self.canvas_redo_stack) > CANVAS_HISTORY_LIMIT:
+            self.canvas_redo_stack = self.canvas_redo_stack[-CANVAS_HISTORY_LIMIT:]
+        self._restore_canvas_snapshot(snapshot)
+        self._set_canvas_history_availability()
+
+    def redo_canvas(self) -> None:
+        """Restore the next redoable canvas state."""
+        if not self.canvas_redo_stack:
+            return
+        snapshot = self.canvas_redo_stack.pop()
+        self.canvas_undo_stack.append(self._canvas_snapshot())
+        if len(self.canvas_undo_stack) > CANVAS_HISTORY_LIMIT:
+            self.canvas_undo_stack = self.canvas_undo_stack[-CANVAS_HISTORY_LIMIT:]
+        self._restore_canvas_snapshot(snapshot)
+        self._set_canvas_history_availability()
+
+    def update_other_table_row_id(self, row_index: int, value: str) -> None:
+        """Update the row id for the open supplemental CSV table."""
+        table = (
+            self.time_series_tables.get(self.time_series_dialog_key)
+            if self.time_series_dialog_key
+            else self.other_csv_tables.get(self.other_table_dialog_component)
+        )
+        if table is None:
+            return
+        for row in table["rows"]:
+            if row["row_index"] == int(row_index):
+                row["id"] = str(value)
+                break
+        table["dirty"] = True
+        self.other_table_error = ""
+        self._sync_other_table_dialog()
+
+    def update_other_table_cell(self, row_index: int, column: str, value: str) -> None:
+        """Update one cell in the open supplemental CSV table."""
+        table = (
+            self.time_series_tables.get(self.time_series_dialog_key)
+            if self.time_series_dialog_key
+            else self.other_csv_tables.get(self.other_table_dialog_component)
+        )
+        if table is None:
+            return
+        for row in table["rows"]:
+            if row["row_index"] != int(row_index):
+                continue
+            for cell in row["cells"]:
+                if cell["column"] == str(column):
+                    cell["value"] = str(value)
+                    table["dirty"] = True
+                    self.other_table_error = ""
+                    self._sync_other_table_dialog()
+                    return
+            row["cells"].append(
+                {
+                    "row_index": int(row_index),
+                    "column": str(column),
+                    "value": str(value),
+                }
+            )
+            if str(column) not in table["columns"]:
+                table["columns"].append(str(column))
+            table["dirty"] = True
+            self.other_table_error = ""
+            self._sync_other_table_dialog()
+            return
+
+    def add_other_table_row(self) -> None:
+        """Add a blank row to the open supplemental CSV table."""
+        table = (
+            self.time_series_tables.get(self.time_series_dialog_key)
+            if self.time_series_dialog_key
+            else self.other_csv_tables.get(self.other_table_dialog_component)
+        )
+        if table is None:
+            return
+        columns = (
+            [self.time_series_dialog_column]
+            if self.time_series_dialog_key
+            else table["columns"]
+        )
+        next_index = (
+            max((row["row_index"] for row in table["rows"]), default=-1) + 1
+        )
+        table["rows"].append(
+            {
+                "row_index": next_index,
+                "id": "",
+                "cells": [
+                    {"row_index": next_index, "column": column, "value": ""}
+                    for column in columns
+                ],
+            }
+        )
+        table["loaded"] = True
+        table["dirty"] = True
+        self.other_table_error = ""
+        self._sync_other_table_dialog()
+
+    def delete_other_table_row(self, row_index: int) -> None:
+        """Delete a row from the open supplemental CSV table."""
+        table = (
+            self.time_series_tables.get(self.time_series_dialog_key)
+            if self.time_series_dialog_key
+            else self.other_csv_tables.get(self.other_table_dialog_component)
+        )
+        if table is None:
+            return
+        table["rows"] = [
+            row for row in table["rows"] if row["row_index"] != int(row_index)
+        ]
+        table["dirty"] = True
+        self.other_table_error = ""
+        self._sync_other_table_dialog()
+
+    async def upload_editable_csv(self, files: list[rx.UploadFile]):
+        """Replace the open editable CSV table with an uploaded CSV."""
+        if not files:
+            self.other_table_error = "Choose a CSV file to upload."
+            yield
+            return
+        try:
+            data = await files[0].read()
+            data_frame = pd.read_csv(
+                io.BytesIO(data),
+                index_col=0,
+                dtype=str,
+            ).fillna("")
+            if self.time_series_dialog_key:
+                component_name, attr_name = self.time_series_dialog_key.split(":", 1)
+                table = dataframe_to_time_series_table(
+                    component_name,
+                    attr_name,
+                    data_frame,
+                    dirty=True,
+                )
+                table["loaded"] = True
+                if self.time_series_dialog_column and self.time_series_dialog_column not in table["columns"]:
+                    table["columns"].append(self.time_series_dialog_column)
+                    for row in table["rows"]:
+                        row["cells"].append(
+                            {
+                                "row_index": row["row_index"],
+                                "column": self.time_series_dialog_column,
+                                "value": "",
+                            }
+                        )
+                self.time_series_tables[self.time_series_dialog_key] = table
+            elif self.other_table_dialog_component:
+                table = dataframe_to_other_csv_table(
+                    self.other_table_dialog_component,
+                    data_frame,
+                )
+                table["dirty"] = True
+                table["loaded"] = True
+                self.other_csv_tables[self.other_table_dialog_component] = table
+            else:
+                self.other_table_error = "No editable table is open."
+                yield
+                return
+            self.other_table_error = ""
+            self._sync_other_table_dialog()
+            yield rx.clear_selected_files(EDITABLE_CSV_UPLOAD_ID)
+        except Exception as exc:
+            self.other_table_error = f"Could not load CSV: {exc}"
+            yield
+
+    def _extra_csv_tables_for_export(self) -> dict[str, dict[str, Any]]:
+        """Validate and convert supplemental CSV tables for export."""
+        self._ensure_diagram_reference_rows()
+        extra_tables: dict[str, dict[str, Any]] = {}
+        for table in [
+            *self.other_csv_tables.values(),
+            *self.time_series_tables.values(),
+        ]:
+            seen_ids: set[str] = set()
+            export_rows: list[dict[str, object]] = []
+            for row in table["rows"]:
+                row_id = str(row["id"]).strip()
+                if not row_id:
+                    raise ValueError(
+                        f"{table['file_name']} has a row with a blank name."
+                    )
+                if row_id in seen_ids:
+                    raise ValueError(
+                        f"{table['file_name']} has a duplicate row name: {row_id}."
+                    )
+                seen_ids.add(row_id)
+                values_by_column = {
+                    str(cell["column"]): str(cell["value"])
+                    for cell in row["cells"]
+                }
+                export_rows.append(
+                    {
+                        "id": row_id,
+                        "values": [
+                            values_by_column.get(column, "")
+                            for column in table["columns"]
+                        ],
+                    }
+                )
+            if table.get("dirty") or table.get("loaded"):
+                extra_tables[table["file_name"]] = {
+                    "columns": table["columns"],
+                    "rows": export_rows,
+                    "index_name": table.get("index_name", "name"),
+                }
+        return extra_tables
 
     async def load_network(self, files: list[rx.UploadFile]):
         """Load a PyPSA file for catalog default-value inspection."""
@@ -1766,6 +3794,8 @@ class State(rx.State):
             loaded_network = load_pypsa_loaded_network(saved_path)
             self.sections = model_sections(NETWORK_MODEL, loaded_network)
             self.loaded_source = loaded_network.source or file_name
+            self.other_csv_tables = {}
+            self.time_series_tables = {}
             self.load_message = f"Loaded {file_name}."
             self.load_error = ""
         except Exception as exc:
@@ -1787,6 +3817,8 @@ class State(rx.State):
             loaded_network = load_pypsa_loaded_network(csv_folder)
             self.sections = model_sections(NETWORK_MODEL, loaded_network)
             self.loaded_source = loaded_network.source or str(csv_folder)
+            self.other_csv_tables = load_other_csv_tables(Path(csv_folder))
+            self.time_series_tables = load_time_series_csv_tables(Path(csv_folder))
             self.load_message = f"Loaded CSV directory with {len(files)} files."
             self.load_error = ""
         except Exception as exc:
@@ -1809,9 +3841,12 @@ class State(rx.State):
             loaded_network = load_pypsa_loaded_network(saved_path)
             self.sections = model_sections(NETWORK_MODEL, loaded_network)
             self.loaded_source = str(saved_path)
+            self.save_network_folder = ""
+            self.other_csv_tables = {}
+            self.time_series_tables = {}
             self.network_name = str(network.name or file_name)
             print(network)
-            self._populate_canvas_from_network(network)
+            self._populate_canvas_from_network(network, trigger_route=False)
             self.load_message = f"Loaded {file_name} onto canvas."
             self.export_message = f"Loaded {file_name} onto canvas."
             self.load_error = ""
@@ -1846,7 +3881,10 @@ class State(rx.State):
                 payloads.append((file_name, await upload.read()))
 
             csv_folder = save_uploads_as_csv_folder(payloads, rx.get_upload_dir())
-            async for _ in self._load_canvas_from_selected_network_directory(csv_folder):
+            async for _ in self._load_canvas_from_selected_network_directory(
+                csv_folder,
+                remember=False,
+            ):
                 yield
         except Exception as exc:
             self.export_error = f"Could not load uploaded network folder: {exc}"
@@ -1879,13 +3917,17 @@ class State(rx.State):
             self.show_operation_error("Could not load network", self.export_error)
             yield
 
-    async def _load_canvas_from_selected_network_directory(self, selected_directory: Path):
+    async def _load_canvas_from_selected_network_directory(
+        self,
+        selected_directory: Path,
+        remember: bool = True,
+    ):
         """Load a selected CSV folder using Reflex yield updates."""
         csv_folder = selected_directory.expanduser()
         self.is_loading_network = True
         self.is_operation_dialog_open = True
         self.operation_title = "Loading network"
-        self.operation_status = "Validating selected folder..."
+        self.operation_status = "Importing selected folder..."
         self.operation_kind = "load"
         self.operation_is_error = False
         self.operation_retry_load = False
@@ -1894,34 +3936,34 @@ class State(rx.State):
         self.export_error = ""
         yield
 
-        if not is_valid_pypsa_csv_folder(csv_folder):
-            message = (
-                f"Selected folder is not a valid PyPSA CSV export folder: {csv_folder}. "
-                "Choose a folder containing network.csv and component CSV files."
+        self.operation_status = f"Importing PyPSA CSV folder {csv_folder}..."
+        self.network_load_status = self.operation_status
+        yield
+
+        try:
+            network, loaded_network = await asyncio.to_thread(
+                load_csv_folder_network,
+                csv_folder,
             )
+        except Exception as exc:
+            message = f"Could not import PyPSA CSV folder {csv_folder}: {exc}"
             self.load_error = message
             self.export_error = message
             self.is_loading_network = False
             self.network_load_status = ""
             self.show_operation_error(
-                "Invalid network folder",
+                "Could not load network folder",
                 message,
                 retry_load=True,
             )
             yield
             return
 
-        self.operation_status = f"Importing PyPSA CSV folder {csv_folder}..."
-        self.network_load_status = self.operation_status
-        yield
-
-        network, loaded_network = await asyncio.to_thread(
-            load_csv_folder_network,
-            csv_folder,
-        )
-
         self.sections = model_sections(NETWORK_MODEL, loaded_network)
         self.loaded_source = str(csv_folder)
+        self.save_network_folder = str(csv_folder)
+        self.other_csv_tables = load_other_csv_tables(csv_folder)
+        self.time_series_tables = load_time_series_csv_tables(csv_folder)
         self.network_name = str(network.name or csv_folder.name)
         print(network)
         self.operation_status = "Building canvas object..."
@@ -1932,7 +3974,11 @@ class State(rx.State):
             build_canvas_nodes_from_network,
             network,
         )
+        layout_positions = await asyncio.to_thread(load_layout_positions, csv_folder)
+        apply_layout_positions(diagram_nodes, layout_positions)
         self._apply_canvas_nodes(diagram_nodes, component_counters)
+        if remember and is_pypsa_csv_folder(csv_folder):
+            await asyncio.to_thread(write_last_network_folder, csv_folder)
         yield
 
         if not any(not node["hidden"] for node in self.diagram_nodes):
@@ -1950,22 +3996,49 @@ class State(rx.State):
             yield
             return
 
-        self.operation_status = "Routing canvas..."
-        self.network_load_status = self.operation_status
-        self.route_version += 1
-        yield
-
         self.load_message = f"Loaded {csv_folder} onto canvas."
         self.export_message = f"Loaded network folder {csv_folder} onto canvas."
         self.load_error = ""
         self.export_error = ""
         self.is_loading_network = False
         self.network_load_status = ""
+        self.is_operation_dialog_open = False
+        self.operation_title = ""
+        self.operation_status = ""
+        self.operation_kind = ""
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        yield
+
+    async def initialize_builder_on_load(self):
+        """Reset the builder and reload the last local network folder if available."""
+        self.reset_builder_on_load()
+        yield
+
+        last_network_folder = await asyncio.to_thread(read_last_network_folder)
+        if last_network_folder is None:
+            return
+
+        if not await asyncio.to_thread(is_pypsa_csv_folder, last_network_folder):
+            self.load_message = (
+                f"Last network folder {last_network_folder} is no longer available. "
+                "Using empty PyPSA network defaults."
+            )
+            self.load_error = ""
+            yield
+            return
+
+        async for _ in self._load_canvas_from_selected_network_directory(
+            last_network_folder,
+            remember=False,
+        ):
+            yield
 
     def add_diagram_node(self, payload: dict[str, object]) -> None:
         """Add a dropped palette component to the diagram."""
         component_name = str(payload.get("component", ""))
         bus_node_id = str(payload.get("bus_node_id", ""))
+        self._push_canvas_history()
         self._add_diagram_node_at(
             component_name,
             float(payload.get("x", 80)),
@@ -1978,12 +4051,13 @@ class State(rx.State):
         index = len(self.diagram_nodes)
         x = 80 + (index % 5) * 120
         y = 80 + (index // 5) * 90
+        self._push_canvas_history()
         self._add_diagram_node_at(str(component_name), float(x), float(y))
 
     def _populate_canvas_from_network(
         self,
         network: object,
-        trigger_route: bool = True,
+        trigger_route: bool = False,
     ) -> None:
         """Build diagram nodes and edges from a loaded PyPSA network."""
         diagram_nodes, component_counters = build_canvas_nodes_from_network(network)
@@ -2007,9 +4081,13 @@ class State(rx.State):
         self.selected_component_name = ""
         self.selected_attr_rows = []
         self.component_counters = {}
+        self.armed_component = ""
         self.armed_branch_component = ""
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
+        if self.is_network_data_dialog_open:
+            self._sync_network_data_dialog()
+        self._clear_canvas_history()
 
         self.diagram_nodes = diagram_nodes
         self.component_counters = component_counters
@@ -2074,6 +4152,8 @@ class State(rx.State):
 
     def clear_canvas(self) -> None:
         """Clear all canvas state and selection state."""
+        if self.diagram_nodes:
+            self._push_canvas_history()
         self.diagram_nodes = []
         self.diagram_edges = []
         self.diagram_model = {"components": [], "connections": []}
@@ -2084,6 +4164,7 @@ class State(rx.State):
         self.selected_component_name = ""
         self.selected_attr_rows = []
         self.component_counters = {}
+        self.armed_component = ""
         self.armed_branch_component = ""
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
@@ -2091,9 +4172,13 @@ class State(rx.State):
     def reset_builder_on_load(self) -> None:
         """Reset transient builder state when the app page is loaded."""
         self.clear_canvas()
+        self._clear_canvas_history()
         self.load_message = "Using empty PyPSA network defaults."
         self.load_error = ""
         self.loaded_source = ""
+        self.save_network_folder = ""
+        self.other_csv_tables = {}
+        self.time_series_tables = {}
         self.is_loading_network = False
         self.network_load_status = ""
         self.export_message = ""
@@ -2105,6 +4190,8 @@ class State(rx.State):
         self.operation_kind = ""
         self.operation_is_error = False
         self.operation_retry_load = False
+        self.is_network_data_dialog_open = False
+        self.network_data_tabs = []
 
     async def close_operation_dialog(self):
         """Close the current operation dialog."""
@@ -2135,17 +4222,124 @@ class State(rx.State):
         self.operation_is_error = True
         self.operation_retry_load = retry_load
 
+    def set_selected_router_name(self, value: str) -> None:
+        """Select the router used by the Auto route button."""
+        router_name = str(value)
+        available_names = {option["name"] for option in self.router_options}
+        if router_name in available_names:
+            self.selected_router_name = router_name
+
+    def _router_label(self, router_name: str) -> str:
+        """Return the display label for a router name."""
+        for option in self.router_options:
+            if option["name"] == router_name:
+                return option["label"]
+        return router_name
+
+    def _router_network(self) -> RouterNetwork:
+        """Return the current canvas state in the Python router contract shape."""
+        return {
+            "nodes": copy.deepcopy(self.diagram_nodes),
+            "edges": copy.deepcopy(self.diagram_edges),
+            "diagram_model": copy.deepcopy(self.diagram_model),
+            "metadata": {
+                "selected_node_id": self.selected_node_id,
+                "bus_names": copy.deepcopy(self.canvas_bus_names),
+                "spacing": {
+                    "bus_x": 220,
+                    "component_x": 150,
+                    "component_y": 80,
+                },
+            },
+        }
+
+    def _run_python_router(
+        self,
+        router_name: str,
+        router_network: RouterNetwork,
+    ) -> RouterNetwork:
+        """Run a Python router by name and return its routed network object."""
+        router = PYTHON_ROUTERS.get(router_name)
+        if router is None:
+            raise ValueError(f"Unknown Python router: {router_name}.")
+        routed_network = router.route(router_network)
+        if not isinstance(routed_network, dict):
+            raise ValueError(f"Router {router_name} did not return a network object.")
+        return routed_network
+
+    def _apply_routed_network(self, routed_network: RouterNetwork) -> None:
+        """Validate and apply a full routed network returned by a Python router."""
+        routed_nodes = routed_network.get("nodes", [])
+        if not isinstance(routed_nodes, list):
+            raise ValueError("Router result must contain a nodes list.")
+
+        current_by_id = {str(node["id"]): node for node in self.diagram_nodes}
+        routed_by_id: dict[str, dict[str, object]] = {}
+        for routed_node in routed_nodes:
+            if not isinstance(routed_node, dict):
+                raise ValueError("Router result contains a non-object node.")
+            node_id = str(routed_node.get("id", ""))
+            if not node_id:
+                raise ValueError("Router result contains a node without an id.")
+            if node_id in routed_by_id:
+                raise ValueError(f"Router result contains duplicate node id: {node_id}.")
+            routed_by_id[node_id] = routed_node
+
+        missing_ids = set(current_by_id) - set(routed_by_id)
+        unknown_ids = set(routed_by_id) - set(current_by_id)
+        if missing_ids:
+            raise ValueError(
+                f"Router result is missing nodes: {', '.join(sorted(missing_ids))}."
+            )
+        if unknown_ids:
+            raise ValueError(
+                f"Router result contains unknown nodes: {', '.join(sorted(unknown_ids))}."
+            )
+
+        routed_order = [str(node.get("id", "")) for node in routed_nodes]
+        updated_nodes: list[DiagramNode] = []
+        for node_id in routed_order:
+            current_node = copy.deepcopy(current_by_id[node_id])
+            routed_node = routed_by_id[node_id]
+            if str(routed_node.get("component", current_node["component"])) != current_node["component"]:
+                raise ValueError(f"Router cannot change component type for {node_id}.")
+
+            position = routed_node.get("position", current_node["position"])
+            if not isinstance(position, dict):
+                raise ValueError(f"Router result node {node_id} has invalid position.")
+            current_node["position"] = {
+                "x": float(position.get("x", current_node["position"]["x"])),
+                "y": float(position.get("y", current_node["position"]["y"])),
+            }
+
+            routed_attrs = routed_node.get("attrs")
+            if isinstance(routed_attrs, dict):
+                current_node["attrs"] = copy.deepcopy(routed_attrs)
+            if isinstance(routed_node.get("hidden"), bool):
+                current_node["hidden"] = bool(routed_node["hidden"])
+
+            component = NETWORK_MODEL.component(current_node["component"])
+            current_node["attr_rows"] = diagram_attr_rows(component, current_node["attrs"])
+            updated_nodes.append(current_node)
+
+        self.diagram_nodes = updated_nodes
+        self._sync_diagram_model()
+        if self.selected_node_id:
+            self.select_node(self.selected_node_id)
+
     async def auto_route_canvas(self):
-        """Trigger one ELK auto-route pass in the React Flow canvas."""
+        """Route the canvas with the selected JavaScript or Python router."""
         if not any(not node["hidden"] for node in self.diagram_nodes):
             self.export_error = "Add at least one component before routing."
             self.export_message = ""
             yield
             return
 
+        selected_router_name = self.selected_router_name or JS_ELK_ROUTER_NAME
+        router_label = self._router_label(selected_router_name)
         self.is_operation_dialog_open = True
         self.operation_title = "Auto routing network"
-        self.operation_status = "Running ELK orthogonal layout..."
+        self.operation_status = f"Running {router_label}..."
         self.operation_kind = "route"
         self.operation_is_error = False
         self.operation_retry_load = False
@@ -2153,25 +4347,44 @@ class State(rx.State):
         self.export_error = ""
         yield
 
-        self.route_version += 1
-        yield
+        if selected_router_name == JS_ELK_ROUTER_NAME:
+            self.route_version += 1
+            yield
+            return
+
+        try:
+            router_network = self._router_network()
+            routed_network = await asyncio.to_thread(
+                self._run_python_router,
+                selected_router_name,
+                router_network,
+            )
+            self._push_canvas_history()
+            self._apply_routed_network(routed_network)
+            self.operation_status = f"{router_label} completed."
+            self.is_operation_dialog_open = False
+            self.operation_kind = ""
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            self.export_message = f"{router_label} completed."
+            self.export_error = ""
+            yield
+        except Exception as exc:
+            self.export_error = f"Could not route network: {exc}"
+            self.export_message = ""
+            self.show_operation_error("Could not route network", self.export_error)
+            yield
 
     def finish_auto_route(self) -> None:
         """Close route-related progress dialogs after React Flow finishes."""
-        if self.operation_kind not in {"route", "load"}:
+        if self.operation_kind != "route":
             return
-        completed_load = self.operation_kind == "load"
-        self.operation_status = (
-            "Network loaded and routed."
-            if completed_load
-            else "Auto routing completed."
-        )
+        self.operation_status = "Auto routing completed."
         self.is_operation_dialog_open = False
         self.operation_kind = ""
         self.operation_is_error = False
         self.operation_retry_load = False
-        if not completed_load:
-            self.export_message = "Auto routing completed."
+        self.export_message = "Auto routing completed."
         self.export_error = ""
 
     def set_network_name(self, value: str) -> None:
@@ -2229,6 +4442,7 @@ class State(rx.State):
         component_name = str(component_name)
         if component_name not in NETWORK_MODEL.branch_components:
             return
+        self.armed_component = ""
         if self.armed_branch_component == component_name:
             self.armed_branch_component = ""
             self.pending_branch_node_id = ""
@@ -2237,6 +4451,22 @@ class State(rx.State):
         self.armed_branch_component = component_name
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
+
+    def arm_canvas_component(self, component_name: str) -> None:
+        """Arm or disarm a non-branch component for click-to-place creation."""
+        component_name = str(component_name)
+        if component_name not in NETWORK_MODEL.all_components:
+            return
+        if component_name in NETWORK_MODEL.branch_components:
+            self.arm_branch_component(component_name)
+            return
+        component = NETWORK_MODEL.component(component_name)
+        if component_name != "buses" and not has_bus_attr(component):
+            return
+        self.armed_branch_component = ""
+        self.pending_branch_node_id = ""
+        self.branch_bus0_node_id = ""
+        self.armed_component = "" if self.armed_component == component_name else component_name
 
     def handle_branch_bus_click(self, node_id: str) -> None:
         """Advance the two-click branch creation workflow for a bus node."""
@@ -2249,6 +4479,7 @@ class State(rx.State):
             return
 
         if not self.pending_branch_node_id:
+            self._push_canvas_history()
             branch_node = self._create_hidden_branch_node(
                 self.armed_branch_component,
                 bus_name,
@@ -2270,7 +4501,6 @@ class State(rx.State):
             component = NETWORK_MODEL.component(node["component"])
             node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
             completed_branch_id = node["id"]
-            self.armed_branch_component = ""
             self.pending_branch_node_id = ""
             self.branch_bus0_node_id = ""
             self._sync_diagram_model()
@@ -2314,6 +4544,121 @@ class State(rx.State):
             self.show_operation_error("Could not choose export folder", self.export_error)
             yield
 
+    async def choose_export_folder_and_export(self):
+        """Choose a folder and export the current diagram model to it."""
+        if not self.diagram_nodes:
+            self.export_error = "Add at least one component before exporting."
+            self.export_message = ""
+            yield
+            return
+
+        try:
+            self.is_operation_dialog_open = True
+            self.operation_title = "Saving network"
+            self.operation_status = "Waiting for folder selection..."
+            self.operation_kind = "export-picker"
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            self.export_message = ""
+            self.export_error = ""
+            yield
+
+            selected_folder = await asyncio.to_thread(choose_export_folder)
+
+            if not selected_folder:
+                self.is_operation_dialog_open = False
+                self.operation_title = ""
+                self.operation_status = ""
+                self.operation_kind = ""
+                self.operation_is_error = False
+                self.operation_retry_load = False
+                yield
+                return
+
+            self.export_base_folder = selected_folder
+            self.operation_status = "Creating PyPSA network and writing CSV files..."
+            self.operation_kind = "export"
+            yield
+
+            extra_csv_tables = self._extra_csv_tables_for_export()
+            export_path = await asyncio.to_thread(
+                export_diagram_to_csv_folder,
+                self.diagram_model,
+                NETWORK_MODEL,
+                selected_folder,
+                "",
+                self.network_name,
+                self.save_network_folder or None,
+                extra_csv_tables,
+            )
+            self.operation_status = "Network saved."
+            self.export_message = ""
+            self.export_error = ""
+            self.is_export_dialog_open = False
+            self.is_operation_dialog_open = False
+            self.operation_title = ""
+            self.operation_status = ""
+            self.operation_kind = ""
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            yield rx.toast.success(f"Exported PyPSA CSV folder to {export_path}.")
+        except Exception as exc:
+            self.export_error = f"Could not export network: {exc}"
+            self.export_message = ""
+            self.show_operation_error("Could not save network", self.export_error)
+            yield
+
+    async def save_canvas_network_to_loaded_folder(self):
+        """Save the current diagram model back to the loaded PyPSA CSV folder."""
+        if not self.diagram_nodes:
+            self.export_error = "Add at least one component before saving."
+            self.export_message = ""
+            yield
+            return
+        if not self.save_network_folder:
+            self.export_error = "Load a PyPSA CSV folder before using Save network."
+            self.export_message = ""
+            yield
+            return
+
+        self.is_operation_dialog_open = True
+        self.operation_title = "Saving network"
+        self.operation_status = f"Writing PyPSA CSV files to {self.save_network_folder}..."
+        self.operation_kind = "save"
+        self.operation_is_error = False
+        self.operation_retry_load = False
+        self.export_message = ""
+        self.export_error = ""
+        yield
+
+        try:
+            extra_csv_tables = self._extra_csv_tables_for_export()
+            export_path = await asyncio.to_thread(
+                export_diagram_to_csv_folder,
+                self.diagram_model,
+                NETWORK_MODEL,
+                self.save_network_folder,
+                "",
+                self.network_name,
+                self.save_network_folder,
+                extra_csv_tables,
+            )
+            self.loaded_source = str(export_path)
+            self.export_message = f"Saved network to {export_path}."
+            self.export_error = ""
+            self.is_operation_dialog_open = False
+            self.operation_title = ""
+            self.operation_status = ""
+            self.operation_kind = ""
+            self.operation_is_error = False
+            self.operation_retry_load = False
+            yield rx.toast.success(f"Saved PyPSA CSV folder to {export_path}.")
+        except Exception as exc:
+            self.export_error = f"Could not save network: {exc}"
+            self.export_message = ""
+            self.show_operation_error("Could not save network", self.export_error)
+            yield
+
     async def export_canvas_network(self):
         """Export the current diagram model as a PyPSA CSV folder."""
         if not self.diagram_nodes:
@@ -2333,6 +4678,7 @@ class State(rx.State):
         yield
 
         try:
+            extra_csv_tables = self._extra_csv_tables_for_export()
             export_path = await asyncio.to_thread(
                 export_diagram_to_csv_folder,
                 self.diagram_model,
@@ -2340,6 +4686,8 @@ class State(rx.State):
                 self.export_base_folder,
                 "",
                 self.network_name,
+                self.save_network_folder or None,
+                extra_csv_tables,
             )
             self.operation_status = "Network saved."
             self.export_message = ""
@@ -2449,19 +4797,207 @@ class State(rx.State):
                 return node["position"]
         return None
 
+    def _reference_options_for_attr(self, attr_name: str) -> list[str]:
+        """Return available row names for a global reference attribute."""
+        table_component = REFERENCE_ATTR_TABLES.get(str(attr_name))
+        if not table_component:
+            return []
+        table = self.other_csv_tables.get(table_component)
+        if table is None:
+            return []
+        return [str(row["id"]) for row in table["rows"] if str(row["id"]).strip()]
+
+    def _ensure_reference_table(self, attr_name: str) -> OtherCsvTable | None:
+        """Return the backing supplemental CSV table for a reference attr."""
+        table_component = REFERENCE_ATTR_TABLES.get(str(attr_name))
+        if not table_component:
+            return None
+        table = self.other_csv_tables.get(table_component)
+        if table is None:
+            table = empty_other_csv_table(table_component)
+            self.other_csv_tables[table_component] = table
+        return table
+
+    def _ensure_reference_row(self, attr_name: str, value: object) -> bool:
+        """Create a global reference row if it does not already exist."""
+        row_id = str(value or "").strip()
+        if not row_id:
+            return False
+        table = self._ensure_reference_table(attr_name)
+        if table is None:
+            return False
+        if any(str(row["id"]).strip() == row_id for row in table["rows"]):
+            return False
+        next_index = max((row["row_index"] for row in table["rows"]), default=-1) + 1
+        table["rows"].append(
+            {
+                "row_index": next_index,
+                "id": row_id,
+                "cells": [
+                    {"row_index": next_index, "column": column, "value": ""}
+                    for column in table["columns"]
+                ],
+            }
+        )
+        table["loaded"] = True
+        table["dirty"] = True
+        self.other_table_error = ""
+        self._sync_other_table_dialog()
+        return True
+
+    def _refresh_selected_attr_rows(self) -> None:
+        """Refresh selected attr rows after reference option changes."""
+        if not self.selected_node_id:
+            return
+        for node in self.diagram_nodes:
+            if node["id"] == self.selected_node_id:
+                self.selected_attr_rows = self._selected_attr_rows_for_node(node)
+                return
+
+    def commit_selected_attr_reference(
+        self,
+        attr_name: str,
+        value: object = "",
+    ) -> None:
+        """Promote a selected reference attr value into its global CSV table."""
+        attr_name = str(attr_name)
+        candidate = value
+        if str(candidate or "").strip() == "":
+            for node in self.diagram_nodes:
+                if node["id"] == self.selected_node_id:
+                    candidate = node["attrs"].get(attr_name, "")
+                    break
+        if self._ensure_reference_row(attr_name, candidate):
+            self._refresh_selected_attr_rows()
+
+    def _ensure_diagram_reference_rows(self) -> None:
+        """Ensure used reference attr values exist in their global CSV tables."""
+        changed = False
+        for node in self.diagram_nodes:
+            attrs = node.get("attrs", {})
+            if not isinstance(attrs, dict):
+                continue
+            for attr_name in REFERENCE_ATTR_TABLES:
+                if self._ensure_reference_row(attr_name, attrs.get(attr_name, "")):
+                    changed = True
+        if changed:
+            self._refresh_selected_attr_rows()
+
+    def _selected_attr_rows_for_node(self, node: DiagramNode) -> list[DiagramAttr]:
+        """Return selected-node attr rows with time-series affordance flags."""
+        component_name = str(node["component"])
+        time_series_components = {
+            "buses",
+            "loads",
+            "generators",
+            "stores",
+            "storage_units",
+        }
+        return [
+            {
+                **row,
+                "options": self._reference_options_for_attr(str(row["name"]))
+                if str(row["name"]) in REFERENCE_ATTR_TABLES
+                else row["options"],
+                "has_time_series_table": bool(
+                    row["is_time_series"] and component_name in time_series_components
+                ),
+            }
+            for row in node["attr_rows"]
+        ]
+
     def select_node(self, node_id: str) -> None:
         """Select a visible or hidden diagram node for editing."""
         self.selected_node_id = node_id
         for node in self.diagram_nodes:
             if node["id"] == node_id:
                 self.selected_component_name = str(node["pypsa_name"])
-                self.selected_attr_rows = node["attr_rows"]
+                self.selected_attr_rows = self._selected_attr_rows_for_node(node)
                 return
         self.selected_component_name = ""
         self.selected_attr_rows = []
 
+    def delete_selected_node(self) -> None:
+        """Delete the selected component and rebuild derived canvas data."""
+        selected_node_id = str(self.selected_node_id)
+        if not selected_node_id:
+            return
+
+        selected_node = next(
+            (node for node in self.diagram_nodes if node["id"] == selected_node_id),
+            None,
+        )
+        if selected_node is None:
+            self.selected_node_id = ""
+            self.selected_component_name = ""
+            self.selected_attr_rows = []
+            return
+
+        self._push_canvas_history()
+        selected_component = str(selected_node["component"])
+        selected_attrs = selected_node.get("attrs", {})
+        selected_bus_name = (
+            str(selected_attrs.get("name") or selected_node_id)
+            if selected_component == "buses" and isinstance(selected_attrs, dict)
+            else ""
+        )
+
+        remaining_nodes: list[DiagramNode] = []
+        for node in self.diagram_nodes:
+            if node["id"] == selected_node_id:
+                continue
+            attrs = node.get("attrs", {})
+            if (
+                selected_bus_name
+                and node["component"] in NETWORK_MODEL.branch_components
+                and isinstance(attrs, dict)
+                and (
+                    str(attrs.get("bus0", "")) == selected_bus_name
+                    or str(attrs.get("bus1", "")) == selected_bus_name
+                )
+            ):
+                continue
+            if (
+                selected_bus_name
+                and isinstance(attrs, dict)
+                and str(attrs.get("bus", "")) == selected_bus_name
+            ):
+                attrs["bus"] = ""
+                component = NETWORK_MODEL.component(node["component"])
+                node["attr_rows"] = diagram_attr_rows(component, attrs)
+            remaining_nodes.append(node)
+
+        self.diagram_nodes = remaining_nodes
+        self.selected_node_id = ""
+        self.selected_component_name = ""
+        self.selected_attr_rows = []
+        if self.pending_branch_node_id == selected_node_id:
+            self.pending_branch_node_id = ""
+            self.branch_bus0_node_id = ""
+        if self.branch_bus0_node_id == selected_node_id:
+            self.branch_bus0_node_id = ""
+        if self.pending_branch_node_id and not any(
+            node["id"] == self.pending_branch_node_id for node in self.diagram_nodes
+        ):
+            self.pending_branch_node_id = ""
+            self.branch_bus0_node_id = ""
+        self._sync_diagram_model()
+
+    def open_selected_time_series_attr(self, attr_name: str) -> None:
+        """Open the selected component column for a time-series attribute."""
+        if not self.selected_node_id:
+            return
+        for node in self.diagram_nodes:
+            if node["id"] != self.selected_node_id:
+                continue
+            component_name = str(node["component"])
+            pypsa_name = str(node["attrs"].get("name") or node["id"])
+            self._open_time_series_table(component_name, str(attr_name), pypsa_name)
+            return
+
     def update_node_positions(self, updates: list[dict[str, object]]) -> None:
         """Persist dragged node positions and optional bus-drop connections."""
+        original_snapshot = self._canvas_snapshot()
         positions = {
             str(update["id"]): update.get("position", {})
             for update in updates
@@ -2472,17 +5008,25 @@ class State(rx.State):
             for update in updates
             if "id" in update and update.get("bus_node_id")
         }
+        changed = False
         for node in self.diagram_nodes:
             position = positions.get(node["id"])
             if isinstance(position, dict):
-                node["position"] = {
+                new_position = {
                     "x": float(position.get("x", node["position"]["x"])),
                     "y": float(position.get("y", node["position"]["y"])),
+                }
+                if new_position != node["position"]:
+                    changed = True
+                node["position"] = {
+                    "x": new_position["x"],
+                    "y": new_position["y"],
                 }
             bus_node_id = bus_targets.get(node["id"])
             if bus_node_id and "bus" in node["attrs"] and not node["attrs"].get("bus"):
                 bus_name = self._bus_name_for_node_id(bus_node_id)
                 if bus_name:
+                    changed = True
                     node["attrs"]["bus"] = bus_name
                     bus_position = self._node_position(bus_node_id)
                     if bus_position:
@@ -2499,7 +5043,13 @@ class State(rx.State):
                     component = NETWORK_MODEL.component(node["component"])
                     node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
                     if node["id"] == self.selected_node_id:
-                        self.selected_attr_rows = node["attr_rows"]
+                        self.selected_attr_rows = self._selected_attr_rows_for_node(node)
+        if changed and self.operation_kind != "load":
+            self.canvas_undo_stack.append(original_snapshot)
+            if len(self.canvas_undo_stack) > CANVAS_HISTORY_LIMIT:
+                self.canvas_undo_stack = self.canvas_undo_stack[-CANVAS_HISTORY_LIMIT:]
+            self.canvas_redo_stack = []
+            self._set_canvas_history_availability()
         self._sync_diagram_model()
 
     def update_selected_attr(self, attr_name: str, value: object) -> None:
@@ -2514,9 +5064,12 @@ class State(rx.State):
             component = NETWORK_MODEL.component(node["component"])
             attr = component.attrs[str(attr_name)]
             parsed_value = self._parse_attr_value(value, attr.pypsa_type, attr.python_type)
+            if node["attrs"].get(str(attr_name)) == parsed_value:
+                return
+            self._push_canvas_history()
             node["attrs"][str(attr_name)] = parsed_value
             node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
-            self.selected_attr_rows = node["attr_rows"]
+            self.selected_attr_rows = self._selected_attr_rows_for_node(node)
             self._sync_diagram_model()
             return
 
@@ -2580,6 +5133,8 @@ class State(rx.State):
             for node in self.diagram_nodes
             if node["component"] == "buses"
         ]
+        if self.is_network_data_dialog_open:
+            self._sync_network_data_dialog()
 
     def _sync_diagram_edges(self) -> None:
         """Regenerate React Flow edge data from node bus attributes."""
@@ -2604,6 +5159,7 @@ class State(rx.State):
                         "strokeWidth": 3,
                     }
                     if component_name == "links":
+                        branch_style["strokeWidth"] = 1.6
                         branch_style["strokeDasharray"] = "8 7"
                     edges.append(
                         {
@@ -2717,6 +5273,7 @@ def index() -> rx.Component:
         rx.toast.provider(),
         operation_dialog(),
         other_component_dialog(),
+        network_data_dialog(),
         menu_bar(),
         rx.box(
             rx.tabs.root(
@@ -2725,6 +5282,7 @@ def index() -> rx.Component:
                     rx.tabs.trigger("Debug-Network", value="debug-network"),
                     rx.tabs.trigger("Catalog", value="catalog"),
                     class_name="tab-list",
+                    flex_shrink="0",
                 ),
                 rx.tabs.content(
                     builder_tab(),
@@ -2733,9 +5291,22 @@ def index() -> rx.Component:
                     min_height="0",
                     display="flex",
                     flex_direction="column",
+                    overflow="hidden",
                 ),
-                rx.tabs.content(debug_network_tab(), value="debug-network"),
-                rx.tabs.content(catalog_tab(), value="catalog"),
+                rx.tabs.content(
+                    debug_network_tab(),
+                    value="debug-network",
+                    flex="1",
+                    min_height="0",
+                    overflow_y="auto",
+                ),
+                rx.tabs.content(
+                    catalog_tab(),
+                    value="catalog",
+                    flex="1",
+                    min_height="0",
+                    overflow_y="auto",
+                ),
                 default_value="builder",
                 width="100%",
                 height="100%",
@@ -2765,5 +5336,5 @@ app.add_page(
     index,
     route="/",
     title="PyPSA Network Builder",
-    on_load=State.reset_builder_on_load,
+    on_load=State.initialize_builder_on_load,
 )

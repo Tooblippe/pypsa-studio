@@ -17,6 +17,7 @@ class ReactFlowCanvas(rx.Component):
     nodes: rx.Var[list[dict[str, Any]]]
     edges: rx.Var[list[dict[str, Any]]]
     route_version: rx.Var[int]
+    armed_component: rx.Var[str]
     armed_branch_component: rx.Var[str]
     branch_bus0_node_id: rx.Var[str]
 

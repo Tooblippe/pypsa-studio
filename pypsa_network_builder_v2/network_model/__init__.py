@@ -19,6 +19,7 @@ from pypsa_network_builder_v2.network_model.pypsa_network_loader import (
     save_uploads_as_csv_folder,
 )
 from pypsa_network_builder_v2.network_model.pypsa_network_exporter import (
+    LAYOUT_FILE_NAME,
     diagram_to_pypsa_network,
     export_diagram_to_csv_folder,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "ComponentAttribute",
     "ComponentType",
     "Icon",
+    "LAYOUT_FILE_NAME",
     "PypsaNetworkModel",
     "build_network_model",
     "create_component_param_model",

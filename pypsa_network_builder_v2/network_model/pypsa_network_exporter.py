@@ -1,11 +1,17 @@
 """Export diagram-model data to PyPSA network files."""
 
+import json
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Any
 
 import pypsa
 
 from pypsa_network_builder_v2.network_model.pypsa_components import PypsaNetworkModel
+
+
+LAYOUT_FILE_NAME = "pypsa_network_builder_layout.json"
 
 
 def export_diagram_to_csv_folder(
@@ -14,13 +20,21 @@ def export_diagram_to_csv_folder(
     base_folder: str | Path,
     subfolder_name: str = "",
     network_name: str | None = None,
+    preserve_source_folder: str | Path | None = None,
+    extra_csv_tables: dict[str, dict[str, Any]] | None = None,
 ) -> Path:
     """Build a PyPSA network from diagram data and export it as a CSV folder."""
     target_folder = _export_target_folder(base_folder, subfolder_name)
     network = diagram_to_pypsa_network(diagram_model, network_model, network_name)
 
-    _prepare_export_folder(target_folder)
-    network.export_to_csv_folder(target_folder)
+    if preserve_source_folder:
+        _copy_preserved_folder(preserve_source_folder, target_folder)
+        _overlay_network_csv_export(network, target_folder)
+    else:
+        _prepare_export_folder(target_folder)
+        network.export_to_csv_folder(target_folder)
+    _write_extra_csv_tables(target_folder, extra_csv_tables or {})
+    _write_layout_sidecar(target_folder, diagram_model)
     return target_folder
 
 
@@ -107,6 +121,95 @@ def _prepare_export_folder(target_folder: Path) -> None:
     for csv_file in target_folder.glob("*.csv"):
         if csv_file.is_file():
             csv_file.unlink()
+
+
+def _copy_preserved_folder(source_folder: str | Path, target_folder: Path) -> None:
+    """Copy an existing CSV folder into the target before overlaying regenerated files."""
+    source = Path(source_folder).expanduser().resolve()
+    target = target_folder.expanduser().resolve()
+    if not source.exists() or not source.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    if source == target:
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
+def _overlay_network_csv_export(network: pypsa.Network, target_folder: Path) -> None:
+    """Write PyPSA-generated CSV files over a preserved folder without deleting extras."""
+    target_folder.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        export_dir = Path(tmp_dir) / "network"
+        network.export_to_csv_folder(export_dir)
+        for source_file in export_dir.glob("*.csv"):
+            shutil.copy2(source_file, target_folder / source_file.name)
+
+
+def _write_extra_csv_tables(
+    target_folder: Path,
+    extra_csv_tables: dict[str, dict[str, Any]],
+) -> None:
+    """Write edited supplemental CSV tables such as carriers, shapes, and sub_networks."""
+    if not extra_csv_tables:
+        return
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise RuntimeError("pandas is required to write supplemental CSV tables.") from exc
+
+    target_folder.mkdir(parents=True, exist_ok=True)
+    for file_name, table in extra_csv_tables.items():
+        columns = [str(column) for column in table.get("columns", [])]
+        rows = table.get("rows", [])
+        index_values: list[str] = []
+        row_values: list[list[Any]] = []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            index_values.append(str(row.get("id", "")))
+            values = row.get("values", [])
+            row_values.append(list(values if isinstance(values, list) else []))
+        data_frame = pd.DataFrame(row_values, index=index_values, columns=columns)
+        index_name = table.get("index_name", "name")
+        data_frame.index.name = str(index_name) if index_name else None
+        data_frame.to_csv(target_folder / file_name)
+
+
+def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) -> None:
+    """Write builder-only canvas positions next to the PyPSA CSV files."""
+    positions: list[dict[str, Any]] = []
+    for component in diagram_model.get("components", []):
+        if not isinstance(component, dict):
+            continue
+        attrs = component.get("attrs", {})
+        if not isinstance(attrs, dict):
+            attrs = {}
+        position = component.get("position", {})
+        if not isinstance(position, dict):
+            continue
+        try:
+            x = float(position.get("x", 0))
+            y = float(position.get("y", 0))
+        except (TypeError, ValueError):
+            continue
+        positions.append(
+            {
+                "component": str(component.get("component", "")),
+                "id": str(component.get("id", "")),
+                "name": str(attrs.get("name") or component.get("id", "")),
+                "x": x,
+                "y": y,
+            }
+        )
+
+    target_folder.mkdir(parents=True, exist_ok=True)
+    (target_folder / LAYOUT_FILE_NAME).write_text(
+        json.dumps({"version": 1, "positions": positions}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _is_empty_export_value(value: Any) -> bool:

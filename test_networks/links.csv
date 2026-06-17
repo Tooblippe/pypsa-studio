@@ -1,0 +1,8 @@
+name,bus0,bus1,type,carrier
+link_1,buse_4,Abu,,
+link_2,Abu,buse_5,,
+link_3,Abu,buse_6,,
+link_4,Abu,buse_7,,
+link_5,buse_4,bbus,,
+link_6,buse_4,vbus,,
+link_7,buse_4,buse_11,,

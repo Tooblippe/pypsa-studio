@@ -7,11 +7,15 @@ import React, {
 } from "react";
 import {
   Background,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   Position,
   ReactFlowProvider,
+  getSmoothStepPath,
   useReactFlow,
+  useUpdateNodeInternals,
 } from "reactflow";
 import ReactFlow from "reactflow";
 import "reactflow/dist/style.css";
@@ -25,6 +29,11 @@ const BUILDER_SYMBOL_META = {
   line: { width: 52, height: 28 },
   link: { width: 52, height: 28 },
 };
+const BUS_LABEL_HEIGHT = 20;
+const BUS_MIN_HEIGHT_PX = 72;
+const BUS_CONNECTION_SPACING_PX = 24;
+const BUS_CONNECTION_PADDING_PX = 10;
+const EDGE_LABEL_VERTICAL_THRESHOLD_PX = 8;
 
 function componentToBuilderKind(component) {
   const key = String(component || "").toLowerCase();
@@ -52,11 +61,243 @@ function symbolMetaForComponent(component) {
   return BUILDER_SYMBOL_META[kind] || { width: 56, height: 56 };
 }
 
+function maxSideConnectionCount(handles) {
+  const sideCounts = { left: 0, right: 0 };
+  (handles || []).forEach((handle) => {
+    sideCounts[handle.side] = (sideCounts[handle.side] || 0) + 1;
+  });
+  return Math.max(sideCounts.left, sideCounts.right);
+}
+
+function busSymbolHeightForHandles(handles) {
+  const maxSideCount = maxSideConnectionCount(handles);
+  const connectionSpan = Math.max(0, maxSideCount - 1) * BUS_CONNECTION_SPACING_PX;
+  return Math.max(BUS_MIN_HEIGHT_PX, connectionSpan + BUS_CONNECTION_PADDING_PX * 2);
+}
+
+function iconContactPercent(component, side) {
+  const kind = componentToBuilderKind(component);
+  const contactPoints = {
+    generator: { left: 0, right: 100 },
+    load: { left: 0, right: 100 },
+    store: { left: 0, right: 100 },
+    storage_unit: { left: 0, right: 100 },
+  };
+  return contactPoints[kind]?.[side] ?? (side === "left" ? 0 : 100);
+}
+
+function hasConnectorTerminal(component) {
+  return connectorTerminalSides(component).length > 0;
+}
+
+function connectorTerminalSides(component) {
+  const kind = componentToBuilderKind(component);
+  if (kind === "generator") return ["right"];
+  if (kind === "load") return ["left"];
+  if (kind === "store" || kind === "storage_unit") return ["left"];
+  return [];
+}
+
+function connectorTerminalStyleForComponent(component, side, topPx) {
+  const kind = componentToBuilderKind(component);
+  const style = { top: `${topPx}px` };
+  if (kind === "generator" && side === "right") {
+    style.width = "8px";
+  }
+  return style;
+}
+
+function isAttachableComponent(component) {
+  return Boolean(
+    component &&
+      !["buses", "lines", "links", "transformers"].includes(component),
+  );
+}
+
+function parseComponentPayload(payload) {
+  if (!payload) return { component: "" };
+  if (typeof payload === "string" && payload.trim().startsWith("{")) {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return { component: "" };
+    }
+  }
+  return { component: payload };
+}
+
 function displayNameForNode(node) {
   return String(node?.attrs?.name || node?.id || node?.pypsa_name || "");
 }
 
+function safeHandleId(value) {
+  return String(value || "edge").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function nodeCenter(node) {
+  if (!node) return null;
+  const meta = symbolMetaForComponent(node.component);
+  return {
+    x: Number(node.position?.x || 0) + meta.width / 2,
+    y: Number(node.position?.y || 0) + (meta.height + 20) / 2,
+  };
+}
+
+function sideForBusConnection(busNode, otherNode, fallbackHandle) {
+  const busCenter = nodeCenter(busNode);
+  const otherCenter = nodeCenter(otherNode);
+  if (busCenter && otherCenter) {
+    const dx = otherCenter.x - busCenter.x;
+    if (Math.abs(dx) > 1) {
+      return dx < 0 ? "left" : "right";
+    }
+  }
+  return String(fallbackHandle || "").startsWith("left") ? "left" : "right";
+}
+
+function buildBusConnectionRouting(nodes, edges) {
+  const nodeById = new Map((nodes || []).map((node) => [node.id, node]));
+  const handlesByBusId = {};
+  const handleGroups = new Map();
+
+  const registerBusHandle = (edge, endpoint) => {
+    const busNodeId = endpoint === "source" ? edge.source : edge.target;
+    const otherNodeId = endpoint === "source" ? edge.target : edge.source;
+    const busNode = nodeById.get(busNodeId);
+    if (busNode?.component !== "buses") {
+      return endpoint === "source" ? edge.sourceHandle : edge.targetHandle;
+    }
+
+    const otherNode = nodeById.get(otherNodeId);
+    const handleType = endpoint === "source" ? "source" : "target";
+    const fallbackHandle = endpoint === "source" ? edge.sourceHandle : edge.targetHandle;
+    const side = sideForBusConnection(busNode, otherNode, fallbackHandle);
+    const otherCenter = nodeCenter(otherNode);
+    const handle = {
+      id: `${side}-${handleType}-${safeHandleId(edge.id)}`,
+      type: handleType,
+      side,
+      busNodeId,
+      offsetPx: BUS_MIN_HEIGHT_PX / 2,
+      sortY: otherCenter?.y ?? 0,
+      sortIndex: handlesByBusId[busNodeId]?.length ?? 0,
+    };
+    handlesByBusId[busNodeId] = handlesByBusId[busNodeId] || [];
+    handlesByBusId[busNodeId].push(handle);
+
+    const groupKey = `${busNodeId}:${side}`;
+    const group = handleGroups.get(groupKey) || [];
+    group.push(handle);
+    handleGroups.set(groupKey, group);
+    return handle.id;
+  };
+
+  const routedEdges = (edges || []).map((edge) => {
+    const routedEdge = { ...edge };
+    routedEdge.sourceHandle = registerBusHandle(routedEdge, "source");
+    routedEdge.targetHandle = registerBusHandle(routedEdge, "target");
+    return routedEdge;
+  });
+
+  handleGroups.forEach((group) => {
+    group.sort((left, right) => {
+      const yDelta = left.sortY - right.sortY;
+      return Math.abs(yDelta) > 1 ? yDelta : left.sortIndex - right.sortIndex;
+    });
+    const count = group.length;
+    const busNodeId = group[0]?.busNodeId;
+    const busHeight = busSymbolHeightForHandles(handlesByBusId[busNodeId] || []);
+    const groupSpan = Math.max(0, count - 1) * BUS_CONNECTION_SPACING_PX;
+    const startY = count === 1 ? busHeight / 2 : (busHeight - groupSpan) / 2;
+    group.forEach((handle, index) => {
+      handle.offsetPx = count === 1 ? startY : startY + index * BUS_CONNECTION_SPACING_PX;
+    });
+  });
+
+  return {
+    edges: routedEdges,
+    handlesByBusId,
+  };
+}
+
+function shouldRotateStepEdgeLabel(sourceY, targetY, sourcePosition, targetPosition) {
+  const usesHorizontalHandles =
+    (sourcePosition === Position.Left || sourcePosition === Position.Right) &&
+    (targetPosition === Position.Left || targetPosition === Position.Right);
+  return usesHorizontalHandles && Math.abs(sourceY - targetY) > EDGE_LABEL_VERTICAL_THRESHOLD_PX;
+}
+
+function SchematicStepEdge({
+  id,
+  sourceX,
+  sourceY,
+  sourcePosition,
+  targetX,
+  targetY,
+  targetPosition,
+  style = {},
+  markerEnd,
+  markerStart,
+  label,
+  selected,
+}) {
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 0,
+  });
+  const rotateLabel = Boolean(label) && shouldRotateStepEdgeLabel(
+    sourceY,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  );
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        markerStart={markerStart}
+        style={style}
+      />
+      {label ? (
+        <EdgeLabelRenderer>
+          <div
+            className="schematic-edge-label"
+            data-selected={selected ? "true" : "false"}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) rotate(${rotateLabel ? 90 : 0}deg)`,
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  );
+}
+
 function SchematicNode({ data, selected }) {
+  const updateNodeInternals = useUpdateNodeInternals();
+  const symbolMeta = symbolMetaForComponent(data.component);
+  const symbolHeight = Number(data.symbolHeight || symbolMeta.height);
+  const busSymbolHeight = Number(data.busSymbolHeight || BUILDER_SYMBOL_META.bus.height);
+  const handleSignature = (data.connectionHandles || [])
+    .map((handle) => `${handle.id}:${handle.offsetPx}`)
+    .join("|");
+
+  useEffectReactFlowCanvas(() => {
+    if (data.isBus) {
+      updateNodeInternals(data.nodeId);
+    }
+  }, [busSymbolHeight, data.isBus, data.nodeId, handleSignature, updateNodeInternals]);
+
   const handleSelect = (event) => {
     event.stopPropagation();
     if (data.branchArmed && data.isBus) {
@@ -65,37 +306,79 @@ function SchematicNode({ data, selected }) {
     }
     data.onSelect?.(data.nodeId);
   };
+  const busHandleTop = (handle) => Number(handle.offsetPx || busSymbolHeight / 2);
+  const iconHandleTop = symbolHeight / 2;
+  const leftContact = `${iconContactPercent(data.component, "left")}%`;
+  const rightContact = `${iconContactPercent(data.component, "right")}%`;
+  const leftHandleStyle = data.isBus
+    ? undefined
+    : { top: `${iconHandleTop}px`, left: leftContact, transform: "translate(-50%, -50%)" };
+  const rightHandleStyle = data.isBus
+    ? undefined
+    : { top: `${iconHandleTop}px`, left: rightContact, right: "auto", transform: "translate(-50%, -50%)" };
+  const showConnectorTerminals = !data.isBus && hasConnectorTerminal(data.component);
+  const connectorSides = connectorTerminalSides(data.component);
+  const symbolStyle = { height: `${symbolHeight}px` };
 
   return (
     <div
       className="schematic-node"
+      data-is-bus={data.isBus ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-branch-armed={data.branchArmed && data.isBus ? "true" : "false"}
+      data-branch-hover={data.branchArmed && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
       data-branch-start={data.branchBus0NodeId === data.nodeId ? "true" : "false"}
-      data-branch-connected={data.branchConnected ? "true" : "false"}
-      data-hover-connected={data.hoverConnected ? "true" : "false"}
-      data-connection-target={
-        data.connectionDrag && data.isBus
-          ? data.hoverBusId === data.nodeId
-            ? "hover"
-            : "available"
-          : "false"
-      }
       title={`${data.label} (${data.component})`}
       onClick={handleSelect}
       onPointerDown={handleSelect}
     >
-      <Handle className="schematic-node-handle" id="left-target" type="target" position={Position.Left} />
-      <Handle className="schematic-node-handle" id="left-source" type="source" position={Position.Left} />
-      <Handle className="schematic-node-handle" id="right-target" type="target" position={Position.Right} />
-      <Handle className="schematic-node-handle" id="right-source" type="source" position={Position.Right} />
-      {data.iconSvg ? (
+      <Handle className="schematic-node-handle" id="left-target" type="target" position={Position.Left} style={leftHandleStyle} />
+      <Handle className="schematic-node-handle" id="left-source" type="source" position={Position.Left} style={leftHandleStyle} />
+      <Handle className="schematic-node-handle" id="right-target" type="target" position={Position.Right} style={rightHandleStyle} />
+      <Handle className="schematic-node-handle" id="right-source" type="source" position={Position.Right} style={rightHandleStyle} />
+      {showConnectorTerminals ? (
+        <>
+          {connectorSides.includes("left") ? (
+            <span
+              className="schematic-terminal schematic-terminal-left"
+              style={connectorTerminalStyleForComponent(data.component, "left", iconHandleTop)}
+            />
+          ) : null}
+          {connectorSides.includes("right") ? (
+            <span
+              className="schematic-terminal schematic-terminal-right"
+              style={connectorTerminalStyleForComponent(data.component, "right", iconHandleTop)}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {(data.connectionHandles || []).map((handle) => (
+        <Handle
+          className="schematic-node-handle schematic-node-bus-handle"
+          id={handle.id}
+          key={handle.id}
+          type={handle.type}
+          position={handle.side === "left" ? Position.Left : Position.Right}
+          style={{
+            top: `${busHandleTop(handle)}px`,
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+          }}
+        />
+      ))}
+      {data.isBus ? (
+        <span
+          className="schematic-bus-symbol"
+          style={{ height: `${busSymbolHeight}px` }}
+        />
+      ) : data.iconSvg ? (
         <span
           className="schematic-node-symbol"
+          style={symbolStyle}
           dangerouslySetInnerHTML={{ __html: data.iconSvg }}
         />
       ) : (
-        <img className="schematic-node-symbol" src={data.iconSrc} alt="" />
+        <img className="schematic-node-symbol" src={data.iconSrc} alt="" style={symbolStyle} />
       )}
       <span className="schematic-node-label">{data.label}</span>
     </div>
@@ -103,11 +386,13 @@ function SchematicNode({ data, selected }) {
 }
 
 const nodeTypes = { schematic: SchematicNode };
+const edgeTypes = { step: SchematicStepEdge };
 
 function CanvasInner({
   nodes = [],
   edges = [],
   routeVersion = 0,
+  armedComponent = "",
   armedBranchComponent = "",
   branchBus0NodeId = "",
   onNodeDrop,
@@ -119,16 +404,28 @@ function CanvasInner({
 }) {
   const flowWrapperRef = useRefReactFlowCanvas(null);
   const lastRoutedVersionRef = useRefReactFlowCanvas(0);
+  const dragFrameRef = useRefReactFlowCanvas(0);
   const [hoverBusId, setHoverBusId] = useStateReactFlowCanvas("");
-  const [hoveredNodeId, setHoveredNodeId] = useStateReactFlowCanvas("");
-  const [hoveredBranchEdge, setHoveredBranchEdge] = useStateReactFlowCanvas(null);
   const [dragComponent, setDragComponent] = useStateReactFlowCanvas("");
+  const [dragPreview, setDragPreview] = useStateReactFlowCanvas(null);
   const reactFlow = useReactFlow();
 
   const isConnectionDrag = Boolean(
-    dragComponent &&
-      !armedBranchComponent &&
-      !["buses", "lines", "links", "transformers"].includes(dragComponent),
+    isAttachableComponent(dragComponent) && !armedBranchComponent,
+  );
+
+  const edgeRouting = useMemoReactFlowCanvas(
+    () => {
+      const renderedEdges = (edges || []).map((edge) => ({
+        ...edge,
+        type: "step",
+      }));
+      return buildBusConnectionRouting(nodes, renderedEdges);
+    },
+    [
+      edges,
+      nodes,
+    ],
   );
 
   const flowNodes = useMemoReactFlowCanvas(
@@ -136,28 +433,15 @@ function CanvasInner({
       nodes.filter((node) => !node.hidden).map((node) => {
         const meta = symbolMetaForComponent(node.component);
         const label = displayNameForNode(node);
-        const hoveredNodeEdges = hoveredNodeId
-          ? (edges || []).filter(
-              (edge) => edge.source === hoveredNodeId || edge.target === hoveredNodeId,
-            )
-          : [];
-        const hoverConnected =
-          hoveredNodeId &&
-          node.id !== hoveredNodeId &&
-          hoveredNodeEdges.some(
-            (edge) => edge.source === node.id || edge.target === node.id,
-          );
-        const branchConnected =
-          hoveredBranchEdge &&
-          node.component === "buses" &&
-          (hoveredBranchEdge.source === node.id || hoveredBranchEdge.target === node.id);
+        const connectionHandles = node.component === "buses" ? edgeRouting.handlesByBusId[node.id] || [] : [];
+        const symbolHeight = node.component === "buses" ? busSymbolHeightForHandles(connectionHandles) : meta.height;
         return {
           id: node.id,
           type: "schematic",
           position: node.position,
           style: {
             width: `${meta.width}px`,
-            height: `${meta.height + 20}px`,
+            height: `${symbolHeight + BUS_LABEL_HEIGHT}px`,
           },
           data: {
             nodeId: node.id,
@@ -166,11 +450,12 @@ function CanvasInner({
             attrs: node.attrs || {},
             isBus: node.component === "buses",
             branchArmed: Boolean(armedBranchComponent),
-            branchConnected,
-            hoverConnected,
             connectionDrag: isConnectionDrag,
             hoverBusId,
             branchBus0NodeId,
+            symbolHeight: meta.height,
+            busSymbolHeight: symbolHeight,
+            connectionHandles,
             iconSrc: node.icon_src,
             iconSvg: node.icon_svg,
             onSelect: onNodeSelect,
@@ -181,12 +466,10 @@ function CanvasInner({
     [
       armedBranchComponent,
       branchBus0NodeId,
+      edgeRouting.handlesByBusId,
       hoverBusId,
-      hoveredBranchEdge,
-      hoveredNodeId,
       isConnectionDrag,
       nodes,
-      edges,
       onBranchBusClick,
       onNodeSelect,
     ],
@@ -194,26 +477,7 @@ function CanvasInner({
 
   const flowEdges = useMemoReactFlowCanvas(
     () => {
-      const renderedEdges = (edges || []).map((edge) => ({
-        ...edge,
-        type: "step",
-        style:
-          hoveredBranchEdge?.id === edge.id ||
-          (hoveredNodeId && (edge.source === hoveredNodeId || edge.target === hoveredNodeId))
-            ? {
-                ...(edge.style || {}),
-                stroke: "#facc15",
-                strokeWidth: 5,
-              }
-            : edge.style,
-        labelStyle:
-          hoveredBranchEdge?.id === edge.id
-            ? {
-                fill: "#854d0e",
-                fontWeight: 700,
-              }
-            : edge.labelStyle,
-      }));
+      const renderedEdges = [...edgeRouting.edges];
       if (armedBranchComponent && branchBus0NodeId && hoverBusId && hoverBusId !== branchBus0NodeId) {
         renderedEdges.push({
           id: `preview:${branchBus0NodeId}:${hoverBusId}`,
@@ -232,14 +496,7 @@ function CanvasInner({
       }
       return renderedEdges;
     },
-    [
-      armedBranchComponent,
-      branchBus0NodeId,
-      edges,
-      hoverBusId,
-      hoveredBranchEdge,
-      hoveredNodeId,
-    ],
+    [armedBranchComponent, branchBus0NodeId, edgeRouting.edges, hoverBusId],
   );
 
   useEffectReactFlowCanvas(() => {
@@ -303,6 +560,57 @@ function CanvasInner({
     };
   }, [flowEdges, flowNodes, onNodesUpdate, onRouteComplete, reactFlow, routeVersion]);
 
+  useEffectReactFlowCanvas(
+    () => () => {
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  const flowPositionFromEvent = useCallbackReactFlowCanvas(
+    (event) => {
+      const bounds = flowWrapperRef.current?.getBoundingClientRect();
+      const point = bounds
+        ? { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+        : { x: event.clientX, y: event.clientY };
+      if (typeof reactFlow.project === "function") {
+        return reactFlow.project(point);
+      }
+      if (typeof reactFlow.screenToFlowPosition === "function") {
+        return reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      }
+      return point;
+    },
+    [reactFlow],
+  );
+
+  const queueDragPreview = useCallbackReactFlowCanvas(
+    (componentName, event) => {
+      if (!componentName) return;
+      const bounds = flowWrapperRef.current?.getBoundingClientRect();
+      const screenPoint = bounds
+        ? { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
+        : { x: event.clientX, y: event.clientY };
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+      }
+      dragFrameRef.current = window.requestAnimationFrame(() => {
+        const meta = symbolMetaForComponent(componentName);
+        setDragPreview({
+          component: componentName,
+          x: screenPoint.x,
+          y: screenPoint.y,
+          width: meta.width,
+          height: meta.height + 20,
+        });
+        dragFrameRef.current = 0;
+      });
+    },
+    [],
+  );
+
   const busIdAtPoint = useCallbackReactFlowCanvas(
     (clientX, clientY) => {
       const flowNode = flowNodes.find((node) => {
@@ -350,29 +658,37 @@ function CanvasInner({
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = "copy";
       }
-      if (isConnectionDrag) {
+      const payload =
+        event.dataTransfer?.getData("application/pypsa-component") ||
+        (typeof window !== "undefined" ? window.__pypsaBuilderActiveComponent : "");
+      const componentName = dragComponent || parseComponentPayload(payload).component || "";
+      if (componentName) {
+        setDragComponent(componentName);
+        queueDragPreview(componentName, event);
+      }
+      if (isAttachableComponent(componentName) && !armedBranchComponent) {
         setHoverBusId(busIdAtPoint(event.clientX, event.clientY));
       }
     },
-    [busIdAtPoint, isConnectionDrag],
+    [armedBranchComponent, busIdAtPoint, dragComponent, queueDragPreview],
   );
 
   const onDragEnter = useCallbackReactFlowCanvas((event) => {
     const payload =
       event.dataTransfer?.getData("application/pypsa-component") ||
       (typeof window !== "undefined" ? window.__pypsaBuilderActiveComponent : "");
-    if (!payload) return;
-    const component =
-      typeof payload === "string" && payload.trim().startsWith("{")
-        ? JSON.parse(payload)
-        : { component: payload };
-    setDragComponent(component.component || "");
-  }, []);
+    const component = parseComponentPayload(payload);
+    const componentName = component.component || "";
+    if (!componentName) return;
+    setDragComponent(componentName);
+    queueDragPreview(componentName, event);
+  }, [queueDragPreview]);
 
   const onDragLeave = useCallbackReactFlowCanvas((event) => {
     if (!flowWrapperRef.current?.contains(event.relatedTarget)) {
       setDragComponent("");
       setHoverBusId("");
+      setDragPreview(null);
     }
   }, []);
 
@@ -384,23 +700,11 @@ function CanvasInner({
         (typeof window !== "undefined" ? window.__pypsaBuilderActiveComponent : "");
       if (!payload) return;
 
-      const component =
-        typeof payload === "string" && payload.trim().startsWith("{")
-          ? JSON.parse(payload)
-          : { component: payload };
+      const component = parseComponentPayload(payload);
       const componentName = component.component;
       const meta = symbolMetaForComponent(componentName);
       const droppedBusId = busIdAtPoint(event.clientX, event.clientY);
-      const bounds = flowWrapperRef.current?.getBoundingClientRect();
-      const point = bounds
-        ? { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
-        : { x: event.clientX, y: event.clientY };
-      const position =
-        typeof reactFlow.project === "function"
-          ? reactFlow.project(point)
-          : typeof reactFlow.screenToFlowPosition === "function"
-            ? reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
-            : point;
+      const position = flowPositionFromEvent(event);
       onNodeDrop?.({
         component: componentName,
         x: position.x - meta.width / 2,
@@ -409,11 +713,27 @@ function CanvasInner({
       });
       setDragComponent("");
       setHoverBusId("");
+      setDragPreview(null);
       if (typeof window !== "undefined") {
         window.__pypsaBuilderActiveComponent = "";
       }
     },
-    [busIdAtPoint, onNodeDrop, reactFlow],
+    [busIdAtPoint, flowPositionFromEvent, onNodeDrop],
+  );
+
+  const handlePaneClick = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!armedComponent || armedBranchComponent) return;
+      const meta = symbolMetaForComponent(armedComponent);
+      const position = flowPositionFromEvent(event);
+      onNodeDrop?.({
+        component: armedComponent,
+        x: position.x - meta.width / 2,
+        y: position.y - meta.height / 2,
+        bus_node_id: "",
+      });
+    },
+    [armedBranchComponent, armedComponent, flowPositionFromEvent, onNodeDrop],
   );
 
   const handleNodeClick = useCallbackReactFlowCanvas(
@@ -439,22 +759,18 @@ function CanvasInner({
 
   const handleNodeMouseEnter = useCallbackReactFlowCanvas(
     (_, node) => {
-      setHoveredNodeId(node.id);
-      if (armedBranchComponent && node?.data?.isBus) {
+      if (armedBranchComponent && node?.data?.isBus && hoverBusId !== node.id) {
         setHoverBusId(node.id);
       }
     },
-    [armedBranchComponent],
+    [armedBranchComponent, hoverBusId],
   );
 
   const handleNodeMouseLeave = useCallbackReactFlowCanvas((_, node) => {
-    if (node?.id === hoveredNodeId) {
-      setHoveredNodeId("");
-    }
     if (node?.id === hoverBusId) {
       setHoverBusId("");
     }
-  }, [hoverBusId, hoveredNodeId]);
+  }, [hoverBusId]);
 
   const handleEdgeClick = useCallbackReactFlowCanvas(
     (_, edge) => {
@@ -465,20 +781,6 @@ function CanvasInner({
     },
     [onEdgeSelect],
   );
-
-  const handleEdgeMouseEnter = useCallbackReactFlowCanvas((_, edge) => {
-    if (edge?.component && edge?.attrs?.bus0 && edge?.attrs?.bus1) {
-      setHoveredBranchEdge({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-      });
-    }
-  }, []);
-
-  const handleEdgeMouseLeave = useCallbackReactFlowCanvas(() => {
-    setHoveredBranchEdge(null);
-  }, []);
 
   const handleNodeDrag = useCallbackReactFlowCanvas(
     (_, node) => {
@@ -530,6 +832,7 @@ function CanvasInner({
   return (
     <div
       className="react-flow-shell"
+      data-armed-component={armedComponent && !armedBranchComponent ? "true" : "false"}
       ref={flowWrapperRef}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -540,21 +843,34 @@ function CanvasInner({
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
         onNodeMouseDown={handleNodeMouseDown}
         onNodeMouseEnter={handleNodeMouseEnter}
         onNodeMouseLeave={handleNodeMouseLeave}
         onEdgeClick={handleEdgeClick}
-        onEdgeMouseEnter={handleEdgeMouseEnter}
-        onEdgeMouseLeave={handleEdgeMouseLeave}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
+        onPaneClick={handlePaneClick}
         nodesDraggable
         fitView={nodes.length === 0}
       >
         <Background />
         <Controls />
       </ReactFlow>
+      {dragPreview ? (
+        <div
+          className="drag-preview-node"
+          style={{
+            left: `${dragPreview.x}px`,
+            top: `${dragPreview.y}px`,
+            width: `${dragPreview.width}px`,
+            height: `${dragPreview.height}px`,
+          }}
+        >
+          {dragPreview.component.replaceAll("_", " ")}
+        </div>
+      ) : null}
     </div>
   );
 }
