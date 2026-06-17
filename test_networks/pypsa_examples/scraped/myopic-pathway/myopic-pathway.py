@@ -137,6 +137,7 @@ for i, year in enumerate(INVESTMENT_PERIODS):
         sense="<=",
     )
 
+
 # %%
 def optimize_period(n: pypsa.Network, period: int):
     snapshots = n.snapshots[n.snapshots.get_level_values("period") == period]
@@ -154,6 +155,7 @@ display(n.global_constraints)
 
 # %%
 n.statistics.energy_balance().div(1e6).round(2)
+
 
 # %%
 def freeze_period(n: pypsa.Network, period: int):
@@ -196,6 +198,7 @@ df = (
     .fillna(0)
     .T.div(1e3)
 )
+
 
 df.plot.area(
     stacked=True,
