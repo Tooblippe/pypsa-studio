@@ -12,4 +12,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "black>=25.1.0",
+    "pre-commit>=4.0.0",
+]
