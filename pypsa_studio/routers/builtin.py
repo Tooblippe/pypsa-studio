@@ -8,6 +8,9 @@ from typing import Any
 
 from pypsa_studio.routers.base import RouterBase, RouterNetwork
 
+BUS_COMPONENT_HORIZONTAL_OFFSET = 75.0
+BUS_COMPONENT_VERTICAL_OFFSET = 60.0
+
 
 class GridRouter(RouterBase):
     """Deterministic Python router that groups components around their buses."""
@@ -70,12 +73,12 @@ class GridRouter(RouterBase):
             if lane == "top":
                 x_offset = 70.0 + column * 64.0
                 if bus_side == "left":
-                    x_offset = -150.0 - column * 64.0
+                    x_offset = -BUS_COMPONENT_HORIZONTAL_OFFSET - column * 64.0
                 elif bus_side == "right":
                     x_offset = 70.0 + column * 64.0
                 node["position"] = {
                     "x": bus_position["x"] + x_offset,
-                    "y": bus_position["y"] - 120.0 - row * 72.0,
+                    "y": bus_position["y"] - BUS_COMPONENT_VERTICAL_OFFSET - row * 72.0,
                 }
                 continue
 
@@ -83,19 +86,19 @@ class GridRouter(RouterBase):
                 if component_name == "loads":
                     x_offset = 70.0 + column * 64.0
                 if bus_side == "left":
-                    x_offset = -150.0 - column * 64.0
+                    x_offset = -BUS_COMPONENT_HORIZONTAL_OFFSET - column * 64.0
                 elif bus_side == "right":
                     x_offset = 70.0 + column * 64.0
                 node["position"] = {
                     "x": bus_position["x"] + x_offset,
-                    "y": bus_position["y"] + 120.0 + row * 72.0,
+                    "y": bus_position["y"] + BUS_COMPONENT_VERTICAL_OFFSET + row * 72.0,
                 }
                 continue
 
             if bus_side == "left":
-                x_position = bus_position["x"] - 150.0
+                x_position = bus_position["x"] - BUS_COMPONENT_HORIZONTAL_OFFSET
             else:
-                x_position = bus_position["x"] + 150.0
+                x_position = bus_position["x"] + BUS_COMPONENT_HORIZONTAL_OFFSET
             node["position"] = {
                 "x": x_position,
                 "y": bus_position["y"] + x_offset,

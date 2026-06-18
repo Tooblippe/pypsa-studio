@@ -35,6 +35,7 @@ const BUS_CONNECTION_SPACING_PX = 24;
 const BUS_CONNECTION_PADDING_PX = 10;
 const EDGE_LABEL_VERTICAL_THRESHOLD_PX = 8;
 const EDGE_SYMBOL_SIZE_PX = 24;
+const BUS_COMPONENT_HORIZONTAL_OFFSET_PX = 75;
 
 function componentToBuilderKind(component) {
   const key = String(component || "").toLowerCase();
@@ -280,7 +281,11 @@ function applyBusSideConstraintsToLayout(layoutChildren, nodes) {
 
     return {
       ...layoutNode,
-      x: Number(busNode.position?.x || 0) + (busSide === "left" ? -150 : 150),
+      x:
+        Number(busNode.position?.x || 0) +
+        (busSide === "left"
+          ? -BUS_COMPONENT_HORIZONTAL_OFFSET_PX
+          : BUS_COMPONENT_HORIZONTAL_OFFSET_PX),
     };
   });
 }
@@ -542,6 +547,7 @@ function SchematicNode({ data, selected }) {
       className="schematic-node"
       data-is-bus={data.isBus ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
+      data-layout-locked={data.layoutLocked ? "true" : "false"}
       data-branch-armed={data.branchArmed && data.isBus ? "true" : "false"}
       data-connection-hover={data.connectionDrag && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
       data-branch-start={data.branchBus0NodeId === data.nodeId ? "true" : "false"}
@@ -600,6 +606,12 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
     targetKinds: ["component", "branch"],
   },
   {
+    id: "toggle_lock",
+    label: (contextMenu) =>
+      contextMenu?.isLocked ? "Unlock position" : "Lock in place",
+    targetKinds: ["component"],
+  },
+  {
     id: "delete",
     label: "Delete",
     targetKinds: ["component", "branch"],
@@ -609,7 +621,8 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
 function canvasContextMenuItemsForTarget(contextMenu) {
   if (!contextMenu?.targetKind) return [];
   return CANVAS_CONTEXT_MENU_ITEMS.filter((item) =>
-    item.targetKinds.includes(contextMenu.targetKind),
+    item.targetKinds.includes(contextMenu.targetKind) &&
+    !(typeof item.hidden === "function" && item.hidden(contextMenu)),
   );
 }
 
@@ -649,7 +662,7 @@ function CanvasContextMenu({ contextMenu, onAction }) {
             onAction(item.id, contextMenu);
           }}
         >
-          {item.label}
+          {typeof item.label === "function" ? item.label(contextMenu) : item.label}
         </button>
       ))}
     </div>
@@ -723,6 +736,7 @@ function CanvasInner({
             component: node.component,
             attrs: node.attrs || {},
             layout: node.layout || {},
+            layoutLocked: Boolean(node.layout?.locked),
             busSide:
               dragBusSidePreview.nodeId === node.id
                 ? dragBusSidePreview.side
@@ -754,6 +768,19 @@ function CanvasInner({
       onNodeSelect,
     ],
   );
+
+  const lockedPositionsById = useMemoReactFlowCanvas(() => {
+    const positionsById = {};
+    (nodes || []).forEach((node) => {
+      if (!node?.hidden && node?.layout?.locked && node.position) {
+        positionsById[node.id] = {
+          x: Number(node.position.x || 0),
+          y: Number(node.position.y || 0),
+        };
+      }
+    });
+    return positionsById;
+  }, [nodes]);
 
   const flowEdges = useMemoReactFlowCanvas(
     () => {
@@ -811,7 +838,7 @@ function CanvasInner({
       onNodesUpdate?.(
         constrainedChildren.map((node) => ({
           id: node.id,
-          position: {
+          position: lockedPositionsById[node.id] || {
             x: Number(node.x || 0),
             y: Number(node.y || 0),
           },
@@ -830,7 +857,16 @@ function CanvasInner({
     return () => {
       cancelled = true;
     };
-  }, [flowEdges, flowNodes, nodes, onNodesUpdate, onRouteComplete, reactFlow, routeVersion]);
+  }, [
+    flowEdges,
+    flowNodes,
+    lockedPositionsById,
+    nodes,
+    onNodesUpdate,
+    onRouteComplete,
+    reactFlow,
+    routeVersion,
+  ]);
 
   const flowPositionFromEvent = useCallbackReactFlowCanvas(
     (event) => {
@@ -855,7 +891,7 @@ function CanvasInner({
       return { x: event.clientX, y: event.clientY };
     }
     const menuWidth = 180;
-    const menuHeight = 96;
+    const menuHeight = 132;
     return {
       x: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - menuWidth - 8)),
       y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - menuHeight - 8)),
@@ -1091,6 +1127,7 @@ function CanvasInner({
         targetKind: "component",
         targetId: node.id,
         nodeId: node.id,
+        isLocked: Boolean(node?.data?.layoutLocked),
         x: position.x,
         y: position.y,
       });

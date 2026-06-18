@@ -1,79 +1,83 @@
 {
-  "version": 1,
+  "version": 2,
   "positions": [
     {
       "component": "buses",
-      "id": "buse_1",
+      "id": "bus_1",
       "name": "Abu",
       "x": 391.2,
       "y": 805.0000000000001
     },
     {
       "component": "buses",
-      "id": "buse_2",
+      "id": "bus_2",
       "name": "bbus",
-      "x": 393.3333333333333,
-      "y": 15.333333333333371
+      "x": 152.13812971342372,
+      "y": 26.241659125188576,
+      "locked": true
     },
     {
       "component": "buses",
-      "id": "buse_3",
+      "id": "bus_3",
       "name": "vbus",
-      "x": 393.3333333333333,
-      "y": 283.33333333333337
+      "x": 357.85610145028426,
+      "y": 27.390446177050734,
+      "locked": true
     },
     {
       "component": "buses",
-      "id": "buse_4",
+      "id": "bus_4",
       "name": "buse_4",
       "x": 208.0,
-      "y": 641.8000000000002
+      "y": 653.8000000000002
     },
     {
       "component": "buses",
-      "id": "buse_5",
+      "id": "bus_5",
       "name": "buse_5",
       "x": 568.0,
       "y": 828.0000000000001
     },
     {
       "component": "buses",
-      "id": "buse_6",
+      "id": "bus_6",
       "name": "buse_6",
       "x": 577.0,
       "y": 686.0000000000001
     },
     {
       "component": "buses",
-      "id": "buse_7",
+      "id": "bus_7",
       "name": "buse_7",
       "x": 577.0,
       "y": 544.0000000000001
     },
     {
       "component": "buses",
-      "id": "buse_8",
+      "id": "bus_8",
       "name": "buse_8",
       "x": 208.0,
       "y": 820.3333333333335
     },
     {
       "component": "buses",
-      "id": "buse_9",
+      "id": "bus_9",
       "name": "buse_9",
-      "x": 577.0,
-      "y": 402.0000000000001
+      "x": 526.3182401670728,
+      "y": -90.88011437521749,
+      "locked": true
     },
     {
       "component": "buses",
-      "id": "buse_10",
+      "id": "bus_10",
       "name": "buse_10",
-      "x": 574.0,
-      "y": 134.0
+      "x": 29.795746606334802,
+      "y": 77.03429864253397,
+      "locked": true
     },
     {
       "component": "buses",
-      "id": "buse_11",
+      "id": "bus_11",
       "name": "buse_11",
       "x": 372.0,
       "y": 663.0000000000001
@@ -130,14 +134,14 @@
     {
       "component": "links",
       "id": "link_5",
-      "name": "link_5",
+      "name": "LEFT",
       "x": 0.0,
       "y": 0.0
     },
     {
       "component": "links",
       "id": "link_6",
-      "name": "link_6",
+      "name": "RIGHT",
       "x": 0.0,
       "y": 0.0
     },
@@ -166,78 +170,96 @@
       "component": "generators",
       "id": "generator_1",
       "name": "generator_1",
-      "x": -138.29164705882354,
-      "y": 360.1244705882355
+      "x": 24.0,
+      "y": 667.8000000000002,
+      "bus_side": "left"
     },
     {
       "component": "global_constraints",
       "id": "global_constraint_1",
       "name": "global_constraint_1",
-      "x": 372.0,
-      "y": 425.3333333333334
+      "x": 640.5966040375914,
+      "y": 40.1519586030864,
+      "bus_side": "right",
+      "locked": true
     },
     {
       "component": "global_constraints",
       "id": "global_constraint_2",
       "name": "global_constraint_2",
-      "x": 372.0,
-      "y": 157.33333333333337
+      "x": -152.12503091084412,
+      "y": 152.80768932796587,
+      "bus_side": "left",
+      "locked": true
     },
     {
       "component": "loads",
       "id": "load_1",
       "name": "load_1",
-      "x": 568.0,
-      "y": 12.0
+      "x": 66.21701357466048,
+      "y": -29.20923076923078,
+      "bus_side": "left",
+      "locked": true
     },
     {
       "component": "loads",
       "id": "load_2",
       "name": "load_2",
-      "x": 568.0,
-      "y": 280.0
+      "x": 446.36377640097464,
+      "y": 146.96038043856595,
+      "bus_side": "right",
+      "locked": true
     },
     {
       "component": "loads",
       "id": "load_3",
       "name": "load_3",
-      "x": 750.0,
-      "y": 309.3333333333334
+      "x": 742.3977360250609,
+      "y": -88.51848135514554,
+      "bus_side": "right",
+      "locked": true
     },
     {
       "component": "loads",
       "id": "load_4",
       "name": "load_4",
-      "x": 750.0,
-      "y": 146.0
+      "x": -144.59122171945714,
+      "y": 36.916742081447964,
+      "bus_side": "left",
+      "locked": true
     },
     {
       "component": "shunt_impedances",
       "id": "shunt_impedance_1",
       "name": "shunt_impedance_1",
-      "x": 12.0,
-      "y": 828.3333333333335
+      "x": 283.0,
+      "y": 828.3333333333335,
+      "bus_side": "right"
     },
     {
       "component": "storage_units",
       "id": "storage_unit_1",
       "name": "storage_unit_1",
       "x": 750.0,
-      "y": 696.0000000000001
+      "y": 696.0000000000001,
+      "bus_side": "right"
     },
     {
       "component": "storage_units",
       "id": "storage_unit_2",
       "name": "storage_unit_2",
-      "x": 750.0,
-      "y": 427.3333333333334
+      "x": 774.0738359206404,
+      "y": -4.728669242371396,
+      "bus_side": "right",
+      "locked": true
     },
     {
       "component": "stores",
       "id": "store_1",
       "name": "store_1",
       "x": 750.0,
-      "y": 554.0000000000001
+      "y": 554.0000000000001,
+      "bus_side": "right"
     }
   ]
 }

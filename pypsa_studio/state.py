@@ -90,6 +90,9 @@ from pypsa_studio.types import (
     StandardTypeRow,
 )
 
+BUS_COMPONENT_HORIZONTAL_OFFSET = 75.0
+BUS_COMPONENT_DROP_OFFSET = 60.0
+
 
 def clean_upload_staging_dir(upload_dir: str | Path) -> None:
     """Remove staged upload files from the Reflex upload directory."""
@@ -872,6 +875,8 @@ def load_layout_positions(
         bus_side = normalize_bus_side(entry.get("bus_side"))
         if bus_side:
             layout_entry["bus_side"] = bus_side
+        if bool(entry.get("locked")):
+            layout_entry["locked"] = True
         positions[(component_name, pypsa_name)] = layout_entry
     return positions
 
@@ -898,7 +903,13 @@ def apply_layout_positions(
             }
             bus_side = normalize_bus_side(position.get("bus_side"))
             if bus_side:
-                node.setdefault("layout", {})["bus_side"] = bus_side
+                layout = node.setdefault("layout", {})
+                if isinstance(layout, dict):
+                    layout["bus_side"] = bus_side
+            if bool(position.get("locked")):
+                layout = node.setdefault("layout", {})
+                if isinstance(layout, dict):
+                    layout["locked"] = True
     apply_bus_side_layout_from_positions(diagram_nodes)
 
 
@@ -1227,8 +1238,14 @@ def import_position_for_component(
         bus_component_counts[bus_name] = bus_count + 1
         y_offset = (bus_count % 5) * 74 - 148
         if component_name == "generators":
-            return bus_position["x"] - 150, bus_position["y"] + y_offset
-        return bus_position["x"] + 150, bus_position["y"] + y_offset
+            return (
+                bus_position["x"] - BUS_COMPONENT_HORIZONTAL_OFFSET,
+                bus_position["y"] + y_offset,
+            )
+        return (
+            bus_position["x"] + BUS_COMPONENT_HORIZONTAL_OFFSET,
+            bus_position["y"] + y_offset,
+        )
 
     return 160 + (row_index % 6) * 120, 420 + (row_index // 6) * 100
 
@@ -3348,7 +3365,7 @@ Router_type_options = [
                 "bus_names": copy.deepcopy(self.canvas_bus_names),
                 "spacing": {
                     "bus_x": 220,
-                    "component_x": 150,
+                    "component_x": BUS_COMPONENT_HORIZONTAL_OFFSET,
                     "component_y": 80,
                 },
             },
@@ -3423,7 +3440,15 @@ Router_type_options = [
                 current_node["attrs"] = copy.deepcopy(routed_attrs)
             routed_layout = routed_node.get("layout")
             if isinstance(routed_layout, dict):
-                current_node["layout"] = copy.deepcopy(routed_layout)
+                next_layout = copy.deepcopy(routed_layout)
+                current_layout = current_node.get("layout", {})
+                if (
+                    isinstance(current_layout, dict)
+                    and current_layout.get("locked")
+                    and "locked" not in next_layout
+                ):
+                    next_layout["locked"] = True
+                current_node["layout"] = next_layout
             if isinstance(routed_node.get("hidden"), bool):
                 current_node["hidden"] = bool(routed_node["hidden"])
 
@@ -3437,6 +3462,51 @@ Router_type_options = [
         self._sync_diagram_model()
         if self.selected_node_id:
             self.select_node(self.selected_node_id)
+
+    def _locked_node_positions(self) -> dict[str, dict[str, float]]:
+        """Return exact current positions for locked visible diagram nodes."""
+        locked_positions: dict[str, dict[str, float]] = {}
+        for node in self.diagram_nodes:
+            if node.get("hidden"):
+                continue
+            if not self.is_node_layout_locked(node):
+                continue
+            position = node.get("position", {})
+            if not isinstance(position, dict):
+                continue
+            try:
+                locked_positions[str(node["id"])] = {
+                    "x": float(position.get("x", 0)),
+                    "y": float(position.get("y", 0)),
+                }
+            except TypeError, ValueError:
+                continue
+        return locked_positions
+
+    def _restore_locked_router_positions(
+        self,
+        routed_network: RouterNetwork,
+        locked_positions: dict[str, dict[str, float]],
+    ) -> None:
+        """Restore exact locked node positions in a routed network result."""
+        routed_nodes = routed_network.get("nodes", [])
+        if not isinstance(routed_nodes, list):
+            return
+        for node in routed_nodes:
+            if not isinstance(node, dict):
+                continue
+            locked_position = locked_positions.get(str(node.get("id", "")))
+            if locked_position is None:
+                continue
+            node["position"] = {
+                "x": locked_position["x"],
+                "y": locked_position["y"],
+            }
+            layout = node.setdefault("layout", {})
+            if isinstance(layout, dict):
+                layout["locked"] = True
+            else:
+                node["layout"] = {"locked": True}
 
     async def auto_route_canvas(self):
         """Route the canvas with the selected JavaScript or Python router."""
@@ -3459,6 +3529,7 @@ Router_type_options = [
         yield
 
         self._refresh_bus_side_layout()
+        locked_positions = self._locked_node_positions()
         if selected_router_name == JS_ELK_ROUTER_NAME:
             self.route_version += 1
             yield
@@ -3472,8 +3543,10 @@ Router_type_options = [
                 router_network,
             )
             self._apply_bus_side_constraints_to_router_network(routed_network)
+            self._restore_locked_router_positions(routed_network, locked_positions)
             self._push_canvas_history()
             self._apply_routed_network(routed_network)
+            self._refresh_bus_side_layout()
             self._request_canvas_fit_view()
             self.operation_status = f"{router_label} completed."
             self.is_operation_dialog_open = False
@@ -3899,13 +3972,13 @@ Router_type_options = [
                 if bus_position:
                     if component_name == "generators":
                         node["position"] = {
-                            "x": bus_position["x"] - 120,
+                            "x": bus_position["x"] - BUS_COMPONENT_DROP_OFFSET,
                             "y": bus_position["y"] + 8,
                         }
                         node.setdefault("layout", {})["bus_side"] = "left"
                     else:
                         node["position"] = {
-                            "x": bus_position["x"] + 120,
+                            "x": bus_position["x"] + BUS_COMPONENT_DROP_OFFSET,
                             "y": bus_position["y"] + 8,
                         }
                         node.setdefault("layout", {})["bus_side"] = "right"
@@ -4072,9 +4145,9 @@ Router_type_options = [
                 continue
 
             if bus_side == "left" and x >= bus_x:
-                position["x"] = bus_x - 150.0
+                position["x"] = bus_x - BUS_COMPONENT_HORIZONTAL_OFFSET
             elif bus_side == "right" and x <= bus_x:
-                position["x"] = bus_x + 150.0
+                position["x"] = bus_x + BUS_COMPONENT_HORIZONTAL_OFFSET
 
     def _reference_options_for_attr(self, attr_name: str) -> list[str]:
         """Return available row names for a global reference attribute."""
@@ -4211,12 +4284,55 @@ Router_type_options = [
         self.selected_component_name = ""
         self.selected_attr_rows = []
 
+    def is_node_layout_locked(self, node: DiagramNode) -> bool:
+        """Return whether a diagram node is locked to its current position."""
+        layout = node.get("layout", {})
+        return bool(isinstance(layout, dict) and layout.get("locked"))
+
+    def set_node_layout_locked(self, node_id: str, locked: bool) -> None:
+        """Set whether a diagram node is locked to its current position."""
+        target_node_id = str(node_id)
+        for node in self.diagram_nodes:
+            if node["id"] != target_node_id:
+                continue
+            if node.get("hidden"):
+                return
+            is_locked = self.is_node_layout_locked(node)
+            next_locked = bool(locked)
+            if is_locked == next_locked:
+                return
+
+            self._push_canvas_history()
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            if next_locked:
+                layout["locked"] = True
+            else:
+                layout.pop("locked", None)
+            self._sync_diagram_model()
+            if self.selected_node_id == target_node_id:
+                self.select_node(target_node_id)
+            return
+
+    def toggle_node_layout_locked(self, node_id: str) -> None:
+        """Toggle whether a diagram node is locked to its current position."""
+        target_node_id = str(node_id)
+        for node in self.diagram_nodes:
+            if node["id"] == target_node_id:
+                self.set_node_layout_locked(
+                    target_node_id,
+                    not self.is_node_layout_locked(node),
+                )
+                return
+
     def handle_canvas_context_menu_action(self, payload: dict[str, object]) -> None:
         """Dispatch a selected canvas context-menu action."""
         action_id = str(payload.get("action_id", ""))
         target_kind = str(payload.get("target_kind", ""))
         node_id = str(payload.get("node_id", ""))
-        if action_id not in {"select", "delete"}:
+        if action_id not in {"select", "delete", "toggle_lock"}:
             return
         if target_kind not in {"component", "branch"}:
             return
@@ -4229,6 +4345,10 @@ Router_type_options = [
 
         if action_id == "delete":
             self.delete_node_by_id(node_id)
+            return
+
+        if action_id == "toggle_lock" and target_kind == "component":
+            self.toggle_node_layout_locked(node_id)
 
     def delete_selected_node(self) -> None:
         """Delete the selected component and rebuild derived canvas data."""
@@ -4381,13 +4501,13 @@ Router_type_options = [
                         ) or default_bus_side_for_component(node["component"])
                         if bus_side == "left":
                             node["position"] = {
-                                "x": bus_position["x"] - 120,
+                                "x": bus_position["x"] - BUS_COMPONENT_DROP_OFFSET,
                                 "y": bus_position["y"] + 8,
                             }
                             layout["bus_side"] = "left"
                         else:
                             node["position"] = {
-                                "x": bus_position["x"] + 120,
+                                "x": bus_position["x"] + BUS_COMPONENT_DROP_OFFSET,
                                 "y": bus_position["y"] + 8,
                             }
                             layout["bus_side"] = "right"

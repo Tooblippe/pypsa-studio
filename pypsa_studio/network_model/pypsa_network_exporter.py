@@ -216,6 +216,8 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
             bus_side = str(layout.get("bus_side", "")).strip().lower()
             if bus_side in {"left", "right"}:
                 position_entry["bus_side"] = bus_side
+            if bool(layout.get("locked")):
+                position_entry["locked"] = True
         positions.append(position_entry)
 
     target_folder.mkdir(parents=True, exist_ok=True)

@@ -96,6 +96,22 @@ def demo_styles() -> rx.Component:
             background: color-mix(in srgb, var(--accent-3) 70%, transparent);
             box-shadow: 0 0 0 2px var(--accent-5), 0 10px 24px color-mix(in srgb, var(--accent-9) 20%, transparent);
           }
+          .schematic-node[data-layout-locked="true"] {
+            border-color: var(--amber-8);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber-6) 70%, transparent);
+          }
+          .schematic-node[data-layout-locked="true"]::after {
+            content: "";
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 8px;
+            height: 8px;
+            border: 1px solid var(--amber-9);
+            border-radius: 999px;
+            background: var(--amber-9);
+            box-shadow: 0 0 0 2px var(--color-panel-solid);
+          }
           .schematic-node:hover {
             border-color: #2563eb;
             background: #dbeafe;
