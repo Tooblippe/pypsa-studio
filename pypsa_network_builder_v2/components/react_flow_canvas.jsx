@@ -822,7 +822,6 @@ function CanvasInner({
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
         nodesDraggable
-        fitView={nodes.length === 0}
         minZoom={0.1}
       >
         <Background />
