@@ -16,11 +16,13 @@ class ReactFlowCanvas(rx.Component):
 
     nodes: rx.Var[list[dict[str, Any]]]
     edges: rx.Var[list[dict[str, Any]]]
+    regions: rx.Var[list[dict[str, Any]]]
     route_version: rx.Var[int]
     fit_view_version: rx.Var[int]
     armed_component: rx.Var[str]
     armed_branch_component: rx.Var[str]
     branch_bus0_node_id: rx.Var[str]
+    rectangle_selection_armed: rx.Var[bool]
 
     on_node_drop: rx.EventHandler[lambda node: [node]]
     on_node_select: rx.EventHandler[lambda node_id: [node_id]]

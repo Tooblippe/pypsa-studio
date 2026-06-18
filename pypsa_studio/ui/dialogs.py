@@ -5,6 +5,7 @@ import reflex as rx
 from pypsa_studio.constants import EDITABLE_CSV_UPLOAD_ID
 from pypsa_studio.state import State
 from pypsa_studio.types import (
+    CarrierVisibilityRow,
     NetworkDataCell,
     NetworkDataColumn,
     NetworkDataRow,
@@ -221,6 +222,121 @@ def export_network_dialog() -> rx.Component:
         ),
         open=State.is_export_dialog_open,
         on_open_change=State.set_export_dialog_open,
+    )
+
+
+def carrier_visibility_row(row: rx.Var[CarrierVisibilityRow]) -> rx.Component:
+    """Render one carrier visibility checkbox row."""
+    return rx.hstack(
+        rx.checkbox(
+            checked=row["checked"].to(bool),
+            on_change=lambda value: State.set_canvas_carrier_visible(
+                row["carrier"],
+                value,
+            ),
+        ),
+        rx.vstack(
+            rx.text(row["label"], size="2", weight="medium"),
+            rx.text(
+                row["component_count"].to(str),
+                " components",
+                size="1",
+                color_scheme="gray",
+            ),
+            spacing="0",
+            align="start",
+            min_width="0",
+        ),
+        spacing="3",
+        align="center",
+        width="100%",
+        padding="8px 0",
+        border_bottom="1px solid var(--gray-5)",
+    )
+
+
+def carrier_visibility_dialog() -> rx.Component:
+    """Render the carrier-based canvas visibility dialog."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Hide by carrier"),
+                rx.dialog.description(
+                    "Uncheck carriers from the Carriers table to hide matching canvas components.",
+                    size="2",
+                    color_scheme="gray",
+                ),
+                rx.cond(
+                    State.carrier_visibility_rows.length() > 0,
+                    rx.vstack(
+                        rx.foreach(
+                            State.carrier_visibility_rows,
+                            carrier_visibility_row,
+                        ),
+                        spacing="0",
+                        align="stretch",
+                        width="100%",
+                        max_height="360px",
+                        overflow_y="auto",
+                    ),
+                    rx.text(
+                        "No carrier rows are available in the Carriers table.",
+                        size="2",
+                        color_scheme="gray",
+                    ),
+                ),
+                rx.flex(
+                    rx.button(
+                        "Unhide all",
+                        on_click=State.unhide_all_canvas_components,
+                        variant="soft",
+                    ),
+                    rx.dialog.close(rx.button("Done")),
+                    spacing="2",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                align="stretch",
+            ),
+            max_width="460px",
+        ),
+        open=State.is_carrier_visibility_dialog_open,
+        on_open_change=State.set_carrier_visibility_dialog_open,
+    )
+
+
+def mark_region_dialog() -> rx.Component:
+    """Render the naming dialog for rectangle-marked regions."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title("Mark region"),
+                rx.dialog.description(
+                    "Name this selected region. Components in the rectangle will be locked in place.",
+                    size="2",
+                    color_scheme="gray",
+                ),
+                rx.input(
+                    placeholder="Region name",
+                    value=State.mark_region_name,
+                    on_change=State.set_mark_region_name,
+                    width="100%",
+                ),
+                rx.flex(
+                    rx.dialog.close(rx.button("Cancel", variant="soft")),
+                    rx.button("Create", on_click=State.confirm_mark_region),
+                    spacing="2",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                align="stretch",
+            ),
+            max_width="420px",
+        ),
+        open=State.is_mark_region_dialog_open,
+        on_open_change=State.set_mark_region_dialog_open,
     )
 
 

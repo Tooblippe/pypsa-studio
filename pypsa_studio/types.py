@@ -62,9 +62,19 @@ class DiagramEdge(TypedDict):
     attrs: dict[str, object]
 
 
+class CanvasRegion(TypedDict):
+    id: str
+    name: str
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 class DiagramModel(TypedDict):
     components: list[dict[str, object]]
     connections: list[dict[str, object]]
+    regions: list[CanvasRegion]
 
 
 class NetworkObjectComponentRow(TypedDict):
@@ -173,15 +183,26 @@ class NetworkDataTab(TypedDict):
     row_count: int
 
 
+class CarrierVisibilityRow(TypedDict):
+    carrier: str
+    label: str
+    checked: bool
+    component_count: int
+
+
 class CanvasSnapshot(TypedDict):
     diagram_nodes: list[DiagramNode]
+    canvas_regions: list[CanvasRegion]
     component_counters: dict[str, int]
     route_version: int
     selected_node_id: str
     armed_component: str
     armed_branch_component: str
+    rectangle_selection_armed: bool
     pending_branch_node_id: str
     branch_bus0_node_id: str
+    visible_canvas_carriers: list[str]
+    carrier_visibility_initialized: bool
 
 
 class SettingField(TypedDict):

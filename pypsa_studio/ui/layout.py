@@ -6,9 +6,11 @@ from pypsa_studio.state import State
 from pypsa_studio.ui.builder import builder_tab
 from pypsa_studio.ui.catalog import catalog_tab, debug_network_tab
 from pypsa_studio.ui.dialogs import (
+    carrier_visibility_dialog,
     clear_canvas_dialog,
     export_network_dialog,
     load_network_dialog,
+    mark_region_dialog,
     network_data_dialog,
     network_name_dialog,
     operation_dialog,
@@ -27,6 +29,8 @@ def index() -> rx.Component:
         demo_styles(),
         rx.toast.provider(),
         operation_dialog(),
+        carrier_visibility_dialog(),
+        mark_region_dialog(),
         clear_canvas_dialog(),
         network_name_dialog(),
         unsaved_changes_dialog(),

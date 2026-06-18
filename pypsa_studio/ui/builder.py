@@ -487,6 +487,94 @@ def inspector_resize_handle() -> rx.Component:
     )
 
 
+def canvas_tool_button(
+    icon: str,
+    label: str,
+    on_click: object,
+    shortcut: str = "",
+    color: str = "",
+    disabled: object = False,
+    element_id: str = "",
+    active: object = False,
+) -> rx.Component:
+    """Render one consistently styled canvas toolbar icon button."""
+    tooltip = f"{label} ({shortcut})" if shortcut else label
+    custom_attrs = {"id": element_id} if element_id else {}
+    custom_attrs["data-active"] = (
+        "true"
+        if active is True
+        else "false" if active is False else rx.cond(active, "true", "false")
+    )
+    return rx.tooltip(
+        rx.button(
+            rx.icon(icon, size=17, color=color or "currentColor"),
+            aria_label=label,
+            on_click=on_click,
+            disabled=disabled,
+            variant="ghost",
+            size="1",
+            class_name="canvas-tool-button",
+            custom_attrs=custom_attrs,
+        ),
+        content=tooltip,
+        side="bottom",
+    )
+
+
+def canvas_toolbar() -> rx.Component:
+    """Render the compact canvas tool row above the schematic canvas."""
+    return rx.hstack(
+        canvas_tool_button(
+            icon="recycle",
+            label="Auto route",
+            shortcut="Ctrl+R",
+            on_click=State.auto_route_canvas,
+            color="#d8a200",
+            element_id="canvas-auto-route-toolbar-button",
+        ),
+        canvas_tool_button(
+            icon="eye-off",
+            label="Hide by carrier",
+            on_click=State.open_carrier_visibility_dialog,
+            color="#7c3aed",
+            element_id="canvas-hide-by-carrier-toolbar-button",
+        ),
+        canvas_tool_button(
+            icon="eye",
+            label="Unhide all",
+            on_click=State.unhide_all_canvas_components,
+            color="#15803d",
+            element_id="canvas-unhide-all-toolbar-button",
+        ),
+        canvas_tool_button(
+            icon="scan",
+            label="Rectangle selection",
+            on_click=State.toggle_rectangle_selection_armed,
+            color="#2563eb",
+            element_id="canvas-rectangle-selection-toolbar-button",
+            active=State.rectangle_selection_armed,
+        ),
+        canvas_tool_button(
+            icon="lock",
+            label="Lock all in place",
+            on_click=State.lock_all_canvas_components,
+            color="#b45309",
+            element_id="canvas-lock-all-toolbar-button",
+        ),
+        canvas_tool_button(
+            icon="lock_open",
+            label="Unlock all",
+            on_click=State.unlock_all_canvas_components,
+            color="#64748b",
+            element_id="canvas-unlock-all-toolbar-button",
+        ),
+        spacing="2",
+        align="center",
+        width="100%",
+        class_name="canvas-toolbar",
+    )
+
+
 def builder_tab() -> rx.Component:
     """Render the main schematic builder tab."""
     return rx.vstack(
@@ -496,15 +584,18 @@ def builder_tab() -> rx.Component:
         rx.hstack(
             rx.cond(State.show_left_sidebar, palette_sidebar(), rx.fragment()),
             rx.vstack(
+                canvas_toolbar(),
                 rx.box(
                     react_flow_canvas(
                         nodes=State.diagram_nodes,
                         edges=State.diagram_edges,
+                        regions=State.canvas_regions,
                         route_version=State.route_version,
                         fit_view_version=State.fit_view_version,
                         armed_component=State.armed_component,
                         armed_branch_component=State.armed_branch_component,
                         branch_bus0_node_id=State.branch_bus0_node_id,
+                        rectangle_selection_armed=State.rectangle_selection_armed,
                         on_node_drop=State.add_diagram_node,
                         on_node_select=State.select_node,
                         on_branch_bus_click=State.handle_branch_bus_click,

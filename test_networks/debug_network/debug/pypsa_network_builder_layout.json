@@ -12,16 +12,16 @@
       "component": "buses",
       "id": "bus_2",
       "name": "bbus",
-      "x": 152.13812971342372,
-      "y": 26.241659125188576,
+      "x": 393.3333333333333,
+      "y": 15.333333333333371,
       "locked": true
     },
     {
       "component": "buses",
       "id": "bus_3",
       "name": "vbus",
-      "x": 357.85610145028426,
-      "y": 27.390446177050734,
+      "x": 393.3333333333333,
+      "y": 283.3333333333334,
       "locked": true
     },
     {
@@ -29,7 +29,7 @@
       "id": "bus_4",
       "name": "buse_4",
       "x": 208.0,
-      "y": 653.8000000000002
+      "y": 641.8000000000002
     },
     {
       "component": "buses",
@@ -63,16 +63,16 @@
       "component": "buses",
       "id": "bus_9",
       "name": "buse_9",
-      "x": 526.3182401670728,
-      "y": -90.88011437521749,
+      "x": 577.0,
+      "y": 402.0000000000001,
       "locked": true
     },
     {
       "component": "buses",
       "id": "bus_10",
       "name": "buse_10",
-      "x": 29.795746606334802,
-      "y": 77.03429864253397,
+      "x": 515.3259047619047,
+      "y": 125.07133333333331,
       "locked": true
     },
     {
@@ -171,15 +171,15 @@
       "id": "generator_1",
       "name": "generator_1",
       "x": 24.0,
-      "y": 667.8000000000002,
+      "y": 665.8000000000002,
       "bus_side": "left"
     },
     {
       "component": "global_constraints",
       "id": "global_constraint_1",
       "name": "global_constraint_1",
-      "x": 640.5966040375914,
-      "y": 40.1519586030864,
+      "x": 652.0,
+      "y": 425.3333333333334,
       "bus_side": "right",
       "locked": true
     },
@@ -187,26 +187,26 @@
       "component": "global_constraints",
       "id": "global_constraint_2",
       "name": "global_constraint_2",
-      "x": -152.12503091084412,
-      "y": 152.80768932796587,
-      "bus_side": "left",
+      "x": 649.0,
+      "y": 157.33333333333337,
+      "bus_side": "right",
       "locked": true
     },
     {
       "component": "loads",
       "id": "load_1",
       "name": "load_1",
-      "x": 66.21701357466048,
-      "y": -29.20923076923078,
-      "bus_side": "left",
+      "x": 568.0,
+      "y": 12.0,
+      "bus_side": "right",
       "locked": true
     },
     {
       "component": "loads",
       "id": "load_2",
       "name": "load_2",
-      "x": 446.36377640097464,
-      "y": 146.96038043856595,
+      "x": 568.0,
+      "y": 280.0000000000001,
       "bus_side": "right",
       "locked": true
     },
@@ -214,8 +214,8 @@
       "component": "loads",
       "id": "load_3",
       "name": "load_3",
-      "x": 742.3977360250609,
-      "y": -88.51848135514554,
+      "x": 750.0,
+      "y": 309.3333333333334,
       "bus_side": "right",
       "locked": true
     },
@@ -223,18 +223,19 @@
       "component": "loads",
       "id": "load_4",
       "name": "load_4",
-      "x": -144.59122171945714,
-      "y": 36.916742081447964,
-      "bus_side": "left",
+      "x": 750.0,
+      "y": 146.0,
+      "bus_side": "right",
       "locked": true
     },
     {
       "component": "shunt_impedances",
       "id": "shunt_impedance_1",
       "name": "shunt_impedance_1",
-      "x": 283.0,
-      "y": 828.3333333333335,
-      "bus_side": "right"
+      "x": 61.05885714285711,
+      "y": 851.292761904762,
+      "bus_side": "left",
+      "locked": true
     },
     {
       "component": "storage_units",
@@ -248,8 +249,8 @@
       "component": "storage_units",
       "id": "storage_unit_2",
       "name": "storage_unit_2",
-      "x": 774.0738359206404,
-      "y": -4.728669242371396,
+      "x": 750.0,
+      "y": 427.3333333333334,
       "bus_side": "right",
       "locked": true
     },

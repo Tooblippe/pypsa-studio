@@ -168,6 +168,10 @@ function displayNameForNode(node) {
   return String(node?.attrs?.name || node?.id || node?.pypsa_name || "");
 }
 
+function isCanvasVisible(node) {
+  return node?.layout?.visible !== false;
+}
+
 function safeHandleId(value) {
   return String(value || "edge").replace(/[^a-zA-Z0-9_-]/g, "_");
 }
@@ -552,6 +556,11 @@ function SchematicNode({ data, selected }) {
       data-connection-hover={data.connectionDrag && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
       data-branch-start={data.branchBus0NodeId === data.nodeId ? "true" : "false"}
       title={`${data.label} (${data.component})`}
+      style={
+        data.canvasVisible
+          ? undefined
+          : { opacity: 0, pointerEvents: "none" }
+      }
     >
       <Handle className="schematic-node-handle" id="left-target" type="target" position={Position.Left} style={leftHandleStyle} />
       <Handle className="schematic-node-handle" id="left-source" type="source" position={Position.Left} style={leftHandleStyle} />
@@ -612,9 +621,24 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
     targetKinds: ["component"],
   },
   {
+    id: "hide",
+    label: "Hide",
+    targetKinds: ["component", "branch", "selection"],
+  },
+  {
+    id: "lock_selection",
+    label: "Lock all",
+    targetKinds: ["selection"],
+  },
+  {
+    id: "mark_regions",
+    label: "Mark regions",
+    targetKinds: ["selection"],
+  },
+  {
     id: "delete",
     label: "Delete",
-    targetKinds: ["component", "branch"],
+    targetKinds: ["component", "branch", "region"],
   },
 ];
 
@@ -628,7 +652,179 @@ function canvasContextMenuItemsForTarget(contextMenu) {
 
 function canvasContextTargetLabel(contextMenu) {
   if (!contextMenu?.targetKind) return "";
+  if (contextMenu.targetKind === "selection") return "Selection";
+  if (contextMenu.targetKind === "region") return "Region";
   return contextMenu.targetKind === "branch" ? "Branch" : "Component";
+}
+
+function normalizeSelectionRect(start, current) {
+  const x = Math.min(start.x, current.x);
+  const y = Math.min(start.y, current.y);
+  const width = Math.abs(current.x - start.x);
+  const height = Math.abs(current.y - start.y);
+  return { x, y, width, height, right: x + width, bottom: y + height };
+}
+
+function rectsIntersect(left, right) {
+  return !(
+    left.right < right.x ||
+    left.x > right.right ||
+    left.bottom < right.y ||
+    left.y > right.bottom
+  );
+}
+
+function localPointFromMouseEvent(event, element) {
+  const bounds = element?.getBoundingClientRect();
+  if (!bounds) return { x: event.clientX, y: event.clientY };
+  return {
+    x: event.clientX - bounds.left,
+    y: event.clientY - bounds.top,
+  };
+}
+
+function clampContextMenuPosition(position, wrapper) {
+  const bounds = wrapper?.getBoundingClientRect();
+  if (!bounds) return position;
+  const menuWidth = 180;
+  const menuHeight = 104;
+  return {
+    x: Math.max(8, Math.min(position.x, bounds.width - menuWidth - 8)),
+    y: Math.max(8, Math.min(position.y, bounds.height - menuHeight - 8)),
+  };
+}
+
+function flowBoundsFromLocalRect(rect, reactFlow, wrapper) {
+  const wrapperBounds = wrapper?.getBoundingClientRect();
+  const screenPoint = (point) =>
+    wrapperBounds
+      ? { x: wrapperBounds.left + point.x, y: wrapperBounds.top + point.y }
+      : point;
+  const topLeft =
+    typeof reactFlow.screenToFlowPosition === "function"
+      ? reactFlow.screenToFlowPosition(screenPoint({ x: rect.x, y: rect.y }))
+      : typeof reactFlow.project === "function"
+        ? reactFlow.project({ x: rect.x, y: rect.y })
+        : { x: rect.x, y: rect.y };
+  const bottomRight =
+    typeof reactFlow.screenToFlowPosition === "function"
+      ? reactFlow.screenToFlowPosition(
+          screenPoint({ x: rect.right, y: rect.bottom }),
+        )
+      : typeof reactFlow.project === "function"
+        ? reactFlow.project({ x: rect.right, y: rect.bottom })
+        : { x: rect.right, y: rect.bottom };
+  return {
+    x: Math.min(topLeft.x, bottomRight.x),
+    y: Math.min(topLeft.y, bottomRight.y),
+    width: Math.abs(bottomRight.x - topLeft.x),
+    height: Math.abs(bottomRight.y - topLeft.y),
+  };
+}
+
+function localRectFromFlowBounds(region, reactFlow, wrapper) {
+  const wrapperBounds = wrapper?.getBoundingClientRect();
+  const x = Number(region?.x || 0);
+  const y = Number(region?.y || 0);
+  const width = Number(region?.width || 0);
+  const height = Number(region?.height || 0);
+  const topLeft =
+    typeof reactFlow.flowToScreenPosition === "function"
+      ? reactFlow.flowToScreenPosition({ x, y })
+      : { x, y };
+  const bottomRight =
+    typeof reactFlow.flowToScreenPosition === "function"
+      ? reactFlow.flowToScreenPosition({ x: x + width, y: y + height })
+      : { x: x + width, y: y + height };
+  const offsetX = wrapperBounds ? wrapperBounds.left : 0;
+  const offsetY = wrapperBounds ? wrapperBounds.top : 0;
+  return {
+    x: Math.min(topLeft.x, bottomRight.x) - offsetX,
+    y: Math.min(topLeft.y, bottomRight.y) - offsetY,
+    width: Math.abs(bottomRight.x - topLeft.x),
+    height: Math.abs(bottomRight.y - topLeft.y),
+  };
+}
+
+function localNodeRect(node, reactFlow, wrapper) {
+  const wrapperBounds = wrapper?.getBoundingClientRect();
+  const width = Number.parseFloat(node.style?.width) || 56;
+  const height = Number.parseFloat(node.style?.height) || 56;
+  const screenPosition =
+    typeof reactFlow.flowToScreenPosition === "function"
+      ? reactFlow.flowToScreenPosition(node.position)
+      : node.position;
+  const x = wrapperBounds && typeof reactFlow.flowToScreenPosition === "function"
+    ? screenPosition.x - wrapperBounds.left
+    : screenPosition.x;
+  const y = wrapperBounds && typeof reactFlow.flowToScreenPosition === "function"
+    ? screenPosition.y - wrapperBounds.top
+    : screenPosition.y;
+  return { x, y, right: x + width, bottom: y + height };
+}
+
+function edgeElementForId(wrapper, edgeId) {
+  const edgeElements = Array.from(wrapper?.querySelectorAll(".react-flow__edge") || []);
+  return edgeElements.find((element) => element.getAttribute("data-id") === edgeId) || null;
+}
+
+function svgPointToLocal(svg, point, wrapperBounds) {
+  if (!svg || !wrapperBounds) return null;
+  const svgPoint = svg.createSVGPoint();
+  svgPoint.x = point.x;
+  svgPoint.y = point.y;
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return null;
+  const screenPoint = svgPoint.matrixTransform(matrix);
+  return {
+    x: screenPoint.x - wrapperBounds.left,
+    y: screenPoint.y - wrapperBounds.top,
+  };
+}
+
+function edgePathIntersectsRect(wrapper, edge, rect) {
+  if (!isBranchEdgeComponent(edge.component)) return false;
+  const edgeElement = edgeElementForId(wrapper, edge.id);
+  const escapedId =
+    typeof window !== "undefined" && window.CSS?.escape
+      ? window.CSS.escape(edge.id)
+      : String(edge.id).replace(/"/g, '\\"');
+  const path =
+    edgeElement?.querySelector(".react-flow__edge-path") ||
+    wrapper?.querySelector(`path.react-flow__edge-path[id="${escapedId}"]`);
+  const wrapperBounds = wrapper?.getBoundingClientRect();
+  const svg = path?.ownerSVGElement;
+  if (!path || !wrapperBounds || !svg || typeof path.getTotalLength !== "function") {
+    return false;
+  }
+  let length = 0;
+  try {
+    length = path.getTotalLength();
+  } catch {
+    return false;
+  }
+  const sampleCount = Math.max(16, Math.ceil(length / 20));
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const rawPoint = path.getPointAtLength((length * index) / sampleCount);
+    const localPoint = svgPointToLocal(svg, rawPoint, wrapperBounds);
+    if (
+      localPoint &&
+      localPoint.x >= rect.x &&
+      localPoint.x <= rect.right &&
+      localPoint.y >= rect.y &&
+      localPoint.y <= rect.bottom
+    ) {
+      return true;
+    }
+  }
+  const midpoint = svgPointToLocal(svg, path.getPointAtLength(length / 2), wrapperBounds);
+  return Boolean(
+    midpoint &&
+      midpoint.x >= rect.x &&
+      midpoint.x <= rect.right &&
+      midpoint.y >= rect.y &&
+      midpoint.y <= rect.bottom,
+  );
 }
 
 function CanvasContextMenu({ contextMenu, onAction }) {
@@ -672,11 +868,13 @@ function CanvasContextMenu({ contextMenu, onAction }) {
 function CanvasInner({
   nodes = [],
   edges = [],
+  regions = [],
   routeVersion = 0,
   fitViewVersion = 0,
   armedComponent = "",
   armedBranchComponent = "",
   branchBus0NodeId = "",
+  rectangleSelectionArmed = false,
   onNodeDrop,
   onNodeSelect,
   onBranchBusClick,
@@ -688,6 +886,7 @@ function CanvasInner({
   const flowWrapperRef = useRefReactFlowCanvas(null);
   const lastRoutedVersionRef = useRefReactFlowCanvas(0);
   const lastHandledFitViewVersionRef = useRefReactFlowCanvas(0);
+  const suppressNextPaneClickRef = useRefReactFlowCanvas(false);
   const [hoverBusId, setHoverBusId] = useStateReactFlowCanvas("");
   const [dragComponent, setDragComponent] = useStateReactFlowCanvas("");
   const [dragBusSidePreview, setDragBusSidePreview] = useStateReactFlowCanvas({
@@ -695,6 +894,8 @@ function CanvasInner({
     side: "",
   });
   const [contextMenu, setContextMenu] = useStateReactFlowCanvas(null);
+  const [selectionDrag, setSelectionDrag] = useStateReactFlowCanvas(null);
+  const [viewportRevision, setViewportRevision] = useStateReactFlowCanvas(0);
   const reactFlow = useReactFlow();
 
   const isConnectionDrag = Boolean(
@@ -717,7 +918,15 @@ function CanvasInner({
 
   const flowNodes = useMemoReactFlowCanvas(
     () =>
-      nodes.filter((node) => !node.hidden && !isBranchEdgeComponent(node.component)).map((node) => {
+      nodes.filter((node) => {
+        const canvasVisible = isCanvasVisible(node);
+        return (
+          !node.hidden &&
+          !isBranchEdgeComponent(node.component) &&
+          (canvasVisible || node.component === "buses")
+        );
+      }).map((node) => {
+        const canvasVisible = isCanvasVisible(node);
         const meta = symbolMetaForComponent(node.component);
         const label = displayNameForNode(node);
         const connectionHandles = node.component === "buses" ? edgeRouting.handlesByBusId[node.id] || [] : [];
@@ -737,6 +946,7 @@ function CanvasInner({
             attrs: node.attrs || {},
             layout: node.layout || {},
             layoutLocked: Boolean(node.layout?.locked),
+            canvasVisible,
             busSide:
               dragBusSidePreview.nodeId === node.id
                 ? dragBusSidePreview.side
@@ -786,6 +996,9 @@ function CanvasInner({
     () => {
       return edgeRouting.edges.map((edge) => ({
         ...edge,
+        className: isBranchEdgeComponent(edge.component)
+          ? "schematic-branch-edge"
+          : "",
         data: {
           ...(edge.data || {}),
           component: edge.component || "",
@@ -885,13 +1098,42 @@ function CanvasInner({
     [reactFlow],
   );
 
+  const renderedRegions = useMemoReactFlowCanvas(
+    () =>
+      (regions || [])
+        .filter((region) => Number(region?.width || 0) > 0 && Number(region?.height || 0) > 0)
+        .map((region) => ({
+          ...region,
+          rect: localRectFromFlowBounds(region, reactFlow, flowWrapperRef.current),
+        })),
+    [regions, reactFlow, viewportRevision],
+  );
+
+  useEffectReactFlowCanvas(() => {
+    const wrapper = flowWrapperRef.current;
+    if (!wrapper) return undefined;
+    const bumpViewportRevision = () =>
+      setViewportRevision((current) => (current + 1) % 1000000);
+    const pane = wrapper.querySelector(".react-flow__viewport");
+    const observer = new MutationObserver(bumpViewportRevision);
+    if (pane) {
+      observer.observe(pane, { attributes: true, attributeFilter: ["style", "transform"] });
+    }
+    window.addEventListener("resize", bumpViewportRevision);
+    bumpViewportRevision();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", bumpViewportRevision);
+    };
+  }, [flowNodes.length, regions]);
+
   const contextMenuPositionFromEvent = useCallbackReactFlowCanvas((event) => {
     const bounds = flowWrapperRef.current?.getBoundingClientRect();
     if (!bounds) {
       return { x: event.clientX, y: event.clientY };
     }
     const menuWidth = 180;
-    const menuHeight = 132;
+    const menuHeight = 168;
     return {
       x: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - menuWidth - 8)),
       y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - menuHeight - 8)),
@@ -902,17 +1144,153 @@ function CanvasInner({
     setContextMenu(null);
   }, []);
 
+  const finishRectangleSelection = useCallbackReactFlowCanvas(() => {
+    onCanvasContextMenuAction?.({
+      action_id: "finish_rectangle_selection",
+      target_kind: "selection",
+      node_ids: [],
+    });
+  }, [onCanvasContextMenuAction]);
+
   useEffectReactFlowCanvas(() => {
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         closeContextMenu();
+        if (rectangleSelectionArmed || selectionDrag) {
+          setSelectionDrag(null);
+          finishRectangleSelection();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [closeContextMenu]);
+  }, [
+    closeContextMenu,
+    finishRectangleSelection,
+    rectangleSelectionArmed,
+    selectionDrag,
+  ]);
+
+  const nodeIdsInsideSelectionRect = useCallbackReactFlowCanvas(
+    (rect) => {
+      const wrapper = flowWrapperRef.current;
+      if (!wrapper) return [];
+      return flowNodes
+        .filter((node) => node?.data?.canvasVisible !== false)
+        .filter((node) => rectsIntersect(localNodeRect(node, reactFlow, wrapper), rect))
+        .map((node) => node.id);
+    },
+    [flowNodes, reactFlow],
+  );
+
+  const branchNodeIdsCutBySelectionRect = useCallbackReactFlowCanvas(
+    (rect) => {
+      const wrapper = flowWrapperRef.current;
+      if (!wrapper) return [];
+      return flowEdges
+        .filter((edge) => edgePathIntersectsRect(wrapper, edge, rect))
+        .map((edge) => edge?.attrs?.component_node_id || "")
+        .filter(Boolean);
+    },
+    [flowEdges],
+  );
+
+  const openSelectionContextMenu = useCallbackReactFlowCanvas(
+    (rect, nodeIds) => {
+      if (!nodeIds.length) return;
+      const regionBounds = flowBoundsFromLocalRect(
+        rect,
+        reactFlow,
+        flowWrapperRef.current,
+      );
+      const position = clampContextMenuPosition(
+        { x: rect.right + 8, y: rect.bottom + 8 },
+        flowWrapperRef.current,
+      );
+      setContextMenu({
+        targetKind: "selection",
+        targetId: "rectangle-selection",
+        nodeIds,
+        regionBounds,
+        x: position.x,
+        y: position.y,
+      });
+    },
+    [reactFlow],
+  );
+
+  const handleSelectionMouseDownCapture = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!rectangleSelectionArmed || event.button !== 0) return;
+      if (event.target?.closest?.(".canvas-context-menu")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeContextMenu();
+      const point = localPointFromMouseEvent(event, flowWrapperRef.current);
+      setSelectionDrag({ start: point, current: point });
+    },
+    [closeContextMenu, rectangleSelectionArmed],
+  );
+
+  const handleSelectionMouseMoveCapture = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!selectionDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectionDrag((current) =>
+        current
+          ? {
+              ...current,
+              current: localPointFromMouseEvent(event, flowWrapperRef.current),
+            }
+          : current,
+      );
+    },
+    [selectionDrag],
+  );
+
+  const completeSelectionDrag = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!selectionDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const finalPoint = localPointFromMouseEvent(event, flowWrapperRef.current);
+      const rect = normalizeSelectionRect(selectionDrag.start, finalPoint);
+      setSelectionDrag(null);
+      finishRectangleSelection();
+      suppressNextPaneClickRef.current = true;
+      if (rect.width < 4 || rect.height < 4) return;
+      const selectedNodeIds = [
+        ...nodeIdsInsideSelectionRect(rect),
+        ...branchNodeIdsCutBySelectionRect(rect),
+      ];
+      const uniqueNodeIds = Array.from(new Set(selectedNodeIds));
+      openSelectionContextMenu(rect, uniqueNodeIds);
+    },
+    [
+      branchNodeIdsCutBySelectionRect,
+      finishRectangleSelection,
+      nodeIdsInsideSelectionRect,
+      openSelectionContextMenu,
+      selectionDrag,
+    ],
+  );
+
+  useEffectReactFlowCanvas(() => {
+    if (!selectionDrag) return undefined;
+    window.addEventListener("mousemove", handleSelectionMouseMoveCapture);
+    window.addEventListener("mouseup", completeSelectionDrag);
+    return () => {
+      window.removeEventListener("mousemove", handleSelectionMouseMoveCapture);
+      window.removeEventListener("mouseup", completeSelectionDrag);
+    };
+  }, [
+    completeSelectionDrag,
+    handleSelectionMouseMoveCapture,
+    selectionDrag,
+  ]);
 
   useEffectReactFlowCanvas(() => {
     if (!fitViewVersion) return;
@@ -999,6 +1377,7 @@ function CanvasInner({
   const onDragOver = useCallbackReactFlowCanvas(
     (event) => {
       event.preventDefault();
+      if (rectangleSelectionArmed) return;
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = "copy";
       }
@@ -1011,17 +1390,18 @@ function CanvasInner({
         setHoverBusId(busIdAtPoint(event.clientX, event.clientY));
       }
     },
-    [armedBranchComponent, busIdAtPoint, dragComponent],
+    [armedBranchComponent, busIdAtPoint, dragComponent, rectangleSelectionArmed],
   );
 
   const onDragEnter = useCallbackReactFlowCanvas((event) => {
     closeContextMenu();
+    if (rectangleSelectionArmed) return;
     const payload = dragPayloadFromEvent(event);
     const component = parseComponentPayload(payload);
     const componentName = component.component || "";
     if (!componentName) return;
     setDragComponent(componentName);
-  }, [closeContextMenu]);
+  }, [closeContextMenu, rectangleSelectionArmed]);
 
   const onDragLeave = useCallbackReactFlowCanvas((event) => {
     if (!flowWrapperRef.current?.contains(event.relatedTarget)) {
@@ -1034,6 +1414,7 @@ function CanvasInner({
     (event) => {
       event.preventDefault();
       closeContextMenu();
+      if (rectangleSelectionArmed) return;
       const payload = dragPayloadFromEvent(event);
       if (!payload) return;
 
@@ -1056,12 +1437,23 @@ function CanvasInner({
         window.__pypsaBuilderActivePayload = null;
       }
     },
-    [busIdAtPoint, closeContextMenu, flowPositionFromEvent, onNodeDrop],
+    [
+      busIdAtPoint,
+      closeContextMenu,
+      flowPositionFromEvent,
+      onNodeDrop,
+      rectangleSelectionArmed,
+    ],
   );
 
   const handlePaneClick = useCallbackReactFlowCanvas(
     (event) => {
+      if (suppressNextPaneClickRef.current) {
+        suppressNextPaneClickRef.current = false;
+        return;
+      }
       closeContextMenu();
+      if (rectangleSelectionArmed) return;
       if (!armedComponent || armedBranchComponent) return;
       const meta = symbolMetaForComponent(armedComponent);
       const position = flowPositionFromEvent(event);
@@ -1078,12 +1470,14 @@ function CanvasInner({
       closeContextMenu,
       flowPositionFromEvent,
       onNodeDrop,
+      rectangleSelectionArmed,
     ],
   );
 
   const handleNodeClick = useCallbackReactFlowCanvas(
     (_, node) => {
       closeContextMenu();
+      if (rectangleSelectionArmed) return;
       const isBus = node?.data?.isBus;
       if (armedBranchComponent && isBus) {
         onBranchBusClick?.(node.id);
@@ -1091,36 +1485,45 @@ function CanvasInner({
       }
       onNodeSelect?.(node.id);
     },
-    [armedBranchComponent, closeContextMenu, onBranchBusClick, onNodeSelect],
+    [
+      armedBranchComponent,
+      closeContextMenu,
+      onBranchBusClick,
+      onNodeSelect,
+      rectangleSelectionArmed,
+    ],
   );
 
   const handleNodeMouseDown = useCallbackReactFlowCanvas(
     (event, node) => {
       if (event?.button === 2) return;
       closeContextMenu();
+      if (rectangleSelectionArmed) return;
       if (!armedBranchComponent) {
         onNodeSelect?.(node.id);
       }
     },
-    [armedBranchComponent, closeContextMenu, onNodeSelect],
+    [armedBranchComponent, closeContextMenu, onNodeSelect, rectangleSelectionArmed],
   );
 
   const handleEdgeClick = useCallbackReactFlowCanvas(
     (_, edge) => {
       closeContextMenu();
+      if (rectangleSelectionArmed) return;
       if (armedBranchComponent) return;
       const componentNodeId = edge?.attrs?.component_node_id;
       if (componentNodeId) {
         onEdgeSelect?.(componentNodeId);
       }
     },
-    [armedBranchComponent, closeContextMenu, onEdgeSelect],
+    [armedBranchComponent, closeContextMenu, onEdgeSelect, rectangleSelectionArmed],
   );
 
   const handleNodeContextMenu = useCallbackReactFlowCanvas(
     (event, node) => {
       event.preventDefault();
       event.stopPropagation();
+      if (rectangleSelectionArmed) return;
       if (!node?.id) return;
       const position = contextMenuPositionFromEvent(event);
       setContextMenu({
@@ -1132,13 +1535,14 @@ function CanvasInner({
         y: position.y,
       });
     },
-    [contextMenuPositionFromEvent],
+    [contextMenuPositionFromEvent, rectangleSelectionArmed],
   );
 
   const handleEdgeContextMenu = useCallbackReactFlowCanvas(
     (event, edge) => {
       event.preventDefault();
       event.stopPropagation();
+      if (rectangleSelectionArmed) return;
       if (armedBranchComponent) return;
       const componentNodeId = edge?.attrs?.component_node_id;
       if (!isBranchEdgeComponent(edge?.component)) return;
@@ -1152,16 +1556,36 @@ function CanvasInner({
         y: position.y,
       });
     },
-    [armedBranchComponent, contextMenuPositionFromEvent],
+    [armedBranchComponent, contextMenuPositionFromEvent, rectangleSelectionArmed],
+  );
+
+  const handleRegionContextMenu = useCallbackReactFlowCanvas(
+    (event, region) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!region?.id) return;
+      const position = contextMenuPositionFromEvent(event);
+      setContextMenu({
+        targetKind: "region",
+        targetId: region.id,
+        regionId: region.id,
+        x: position.x,
+        y: position.y,
+      });
+    },
+    [contextMenuPositionFromEvent],
   );
 
   const handleContextMenuAction = useCallbackReactFlowCanvas(
     (actionId, menuContext) => {
-      if (!menuContext?.nodeId) return;
+      if (!menuContext) return;
       onCanvasContextMenuAction?.({
         action_id: actionId,
         target_kind: menuContext.targetKind,
-        node_id: menuContext.nodeId,
+        node_id: menuContext.nodeId || "",
+        node_ids: menuContext.nodeIds || [],
+        region_id: menuContext.regionId || "",
+        region_bounds: menuContext.regionBounds || {},
       });
       closeContextMenu();
     },
@@ -1171,6 +1595,7 @@ function CanvasInner({
   const handleNodeDrag = useCallbackReactFlowCanvas(
     (_, node) => {
       closeContextMenu();
+      if (rectangleSelectionArmed) return;
       const hasBusAttr = Object.prototype.hasOwnProperty.call(node?.data?.attrs || {}, "bus");
       const isConnected = Boolean(node?.data?.attrs?.bus);
       if (!hasBusAttr || node?.data?.isBus) {
@@ -1217,11 +1642,12 @@ function CanvasInner({
       );
       setDragBusSidePreview({ nodeId: "", side: "" });
     },
-    [busIdAtFlowPoint, closeContextMenu, nodes],
+    [busIdAtFlowPoint, closeContextMenu, nodes, rectangleSelectionArmed],
   );
 
   const handleNodeDragStop = useCallbackReactFlowCanvas(
     (_, node) => {
+      if (rectangleSelectionArmed) return;
       const hasBusAttr = Object.prototype.hasOwnProperty.call(node?.data?.attrs || {}, "bus");
       const isConnected = Boolean(node?.data?.attrs?.bus);
       const width = Number.parseFloat(node.style?.width) || 56;
@@ -1273,7 +1699,7 @@ function CanvasInner({
         );
       }, 200);
     },
-    [busIdAtFlowPoint, nodes, onNodesUpdate],
+    [busIdAtFlowPoint, nodes, onNodesUpdate, rectangleSelectionArmed],
   );
 
   return (
@@ -1281,11 +1707,15 @@ function CanvasInner({
       className="react-flow-shell"
       data-armed-component={armedComponent && !armedBranchComponent ? "true" : "false"}
       data-branch-armed={armedBranchComponent ? "true" : "false"}
+      data-rectangle-selection-armed={rectangleSelectionArmed ? "true" : "false"}
       ref={flowWrapperRef}
       onDrop={onDrop}
       onDragOver={onDragOver}
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
+      onMouseDownCapture={handleSelectionMouseDownCapture}
+      onMouseMoveCapture={handleSelectionMouseMoveCapture}
+      onMouseUpCapture={completeSelectionDrag}
     >
       <ReactFlow
         nodes={flowNodes}
@@ -1300,12 +1730,52 @@ function CanvasInner({
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
-        nodesDraggable
+        nodesDraggable={!rectangleSelectionArmed}
+        panOnDrag={!rectangleSelectionArmed}
+        elementsSelectable={!rectangleSelectionArmed}
         minZoom={0.1}
       >
         <Background />
         <Controls />
       </ReactFlow>
+      {renderedRegions.length ? (
+        <div className="canvas-region-layer" aria-hidden="false">
+          {renderedRegions.map((region) => (
+            <div
+              key={region.id}
+              className="canvas-region"
+              onContextMenu={(event) => handleRegionContextMenu(event, region)}
+              title={region.name || "Region"}
+              style={{
+                left: `${region.rect.x}px`,
+                top: `${region.rect.y}px`,
+                width: `${region.rect.width}px`,
+                height: `${region.rect.height}px`,
+              }}
+            >
+              <button
+                type="button"
+                className="canvas-region-label"
+                onContextMenu={(event) => handleRegionContextMenu(event, region)}
+                title={region.name || "Region"}
+              >
+                {region.name || "Region"}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {selectionDrag ? (
+        <div
+          className="canvas-selection-rectangle"
+          style={{
+            left: `${normalizeSelectionRect(selectionDrag.start, selectionDrag.current).x}px`,
+            top: `${normalizeSelectionRect(selectionDrag.start, selectionDrag.current).y}px`,
+            width: `${normalizeSelectionRect(selectionDrag.start, selectionDrag.current).width}px`,
+            height: `${normalizeSelectionRect(selectionDrag.start, selectionDrag.current).height}px`,
+          }}
+        />
+      ) : null}
       <CanvasContextMenu
         contextMenu={contextMenu}
         onAction={handleContextMenuAction}

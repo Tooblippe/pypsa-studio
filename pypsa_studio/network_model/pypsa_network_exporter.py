@@ -190,6 +190,7 @@ def _write_extra_csv_tables(
 def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) -> None:
     """Write builder-only canvas positions next to the PyPSA CSV files."""
     positions: list[dict[str, Any]] = []
+    regions: list[dict[str, Any]] = []
     for component in diagram_model.get("components", []):
         if not isinstance(component, dict):
             continue
@@ -218,11 +219,39 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
                 position_entry["bus_side"] = bus_side
             if bool(layout.get("locked")):
                 position_entry["locked"] = True
+            if layout.get("visible") is False:
+                position_entry["visible"] = False
         positions.append(position_entry)
+
+    for region in diagram_model.get("regions", []):
+        if not isinstance(region, dict):
+            continue
+        try:
+            x = float(region.get("x", 0))
+            y = float(region.get("y", 0))
+            width = float(region.get("width", 0))
+            height = float(region.get("height", 0))
+        except TypeError, ValueError:
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        regions.append(
+            {
+                "id": str(region.get("id", "")),
+                "name": str(region.get("name", "")),
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            }
+        )
 
     target_folder.mkdir(parents=True, exist_ok=True)
     (target_folder / LAYOUT_FILE_NAME).write_text(
-        json.dumps({"version": 2, "positions": positions}, indent=2),
+        json.dumps(
+            {"version": 3, "positions": positions, "regions": regions},
+            indent=2,
+        ),
         encoding="utf-8",
     )
 

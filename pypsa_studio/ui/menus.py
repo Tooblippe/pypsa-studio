@@ -284,47 +284,28 @@ def view_menu() -> rx.Component:
 
 def network_data_menu() -> rx.Component:
     """Render the top-level data menu."""
-    return rx.hstack(
-        rx.menu.root(
-            rx.menu.trigger(
-                rx.button(
-                    "Network Data",
-                    rx.icon("chevron-down", size=14),
-                    aria_label="Data menu",
-                    variant="ghost",
-                    size="2",
-                    title="Data menu (Alt+D)",
-                    custom_attrs={"id": "data-menu-trigger"},
-                )
-            ),
-            rx.menu.content(
-                rx.menu.item(
-                    "Network Data",
-                    shortcut="Ctrl+Shift+D",
-                    on_select=State.open_network_data_dialog,
-                ),
-                align="start",
-                size="2",
-                variant="soft",
-            ),
-        ),
-        rx.tooltip(
+    return rx.menu.root(
+        rx.menu.trigger(
             rx.button(
-                rx.icon("recycle", size=18, color="#d8a200"),
-                aria_label="Auto route",
-                title="Auto route",
-                on_click=State.auto_route_canvas,
+                "Network Data",
+                rx.icon("chevron-down", size=14),
+                aria_label="Data menu",
                 variant="ghost",
-                size="1",
-                padding="0px 6px",
-                border_radius="9999px",
-                margin_left="6px",
-            ),
-            content="Auto Route - Ctrl+R",
-            side="bottom",
+                size="2",
+                title="Data menu (Alt+D)",
+                custom_attrs={"id": "data-menu-trigger"},
+            )
         ),
-        spacing="2",
-        align="center",
+        rx.menu.content(
+            rx.menu.item(
+                "Network Data",
+                shortcut="Ctrl+Shift+D",
+                on_select=State.open_network_data_dialog,
+            ),
+            align="start",
+            size="2",
+            variant="soft",
+        ),
     )
 
 

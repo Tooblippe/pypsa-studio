@@ -41,6 +41,60 @@ def demo_styles() -> rx.Component:
             min-height: 46px;
             background: linear-gradient(180deg, var(--gray-4), var(--gray-3));
           }
+          .canvas-toolbar {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            gap: 6px !important;
+            flex: 0 0 44px;
+            height: 44px;
+            min-height: 44px;
+            padding: 5px 8px;
+            box-sizing: border-box;
+            border: 1px solid color-mix(in srgb, var(--gray-7) 72%, transparent);
+            border-radius: 8px;
+            background: linear-gradient(180deg, var(--gray-4), var(--gray-3));
+          }
+          .canvas-toolbar > * {
+            flex: 0 0 auto !important;
+          }
+          .canvas-tool-button {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            min-height: 32px !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+            border: 1px solid color-mix(in srgb, var(--gray-8) 72%, transparent) !important;
+            border-radius: 6px !important;
+            background: var(--gray-4) !important;
+            color: var(--gray-12) !important;
+            line-height: 1 !important;
+            box-shadow: 0 1px 0 color-mix(in srgb, white 50%, transparent) inset;
+            transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+          }
+          .canvas-tool-button svg {
+            display: block !important;
+            width: 16px !important;
+            height: 16px !important;
+            flex: 0 0 auto !important;
+          }
+          .canvas-tool-button:hover,
+          .canvas-tool-button:focus-visible {
+            border-color: var(--accent-8) !important;
+            background: var(--accent-4) !important;
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-6) 50%, transparent);
+            outline: none;
+            transform: translateY(-1px);
+          }
+          .canvas-tool-button[data-active="true"] {
+            border-color: var(--accent-9) !important;
+            background: color-mix(in srgb, var(--accent-4) 76%, var(--color-panel-solid)) !important;
+          }
           .palette-sidebar,
           .inspector-sidebar {
             background: var(--gray-4);
@@ -161,6 +215,62 @@ def demo_styles() -> rx.Component:
           .react-flow-shell[data-armed-component="true"] {
             cursor: crosshair;
           }
+          .react-flow-shell[data-rectangle-selection-armed="true"],
+          .react-flow-shell[data-rectangle-selection-armed="true"] .react-flow__pane {
+            cursor: crosshair !important;
+          }
+          .react-flow-shell[data-rectangle-selection-armed="true"] .react-flow__node,
+          .react-flow-shell[data-rectangle-selection-armed="true"] .react-flow__edge,
+          .react-flow-shell[data-rectangle-selection-armed="true"] .react-flow__edge-path,
+          .react-flow-shell[data-rectangle-selection-armed="true"] .react-flow__edge-interaction,
+          .react-flow-shell[data-rectangle-selection-armed="true"] .react-flow__edge-textwrapper {
+            pointer-events: none;
+          }
+          .canvas-selection-rectangle {
+            position: absolute;
+            z-index: 24;
+            pointer-events: none;
+            border: 1px dashed #2563eb;
+            border-radius: 3px;
+            background: color-mix(in srgb, #60a5fa 18%, transparent);
+            box-shadow: 0 0 0 1px color-mix(in srgb, #2563eb 18%, transparent) inset;
+          }
+          .canvas-region-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 22;
+            pointer-events: none;
+          }
+          .canvas-region {
+            position: absolute;
+            pointer-events: auto;
+            border: 1px solid #2563eb;
+            border-radius: 4px;
+            background: color-mix(in srgb, #60a5fa 18%, transparent);
+            box-shadow: 0 0 0 1px color-mix(in srgb, #2563eb 22%, transparent) inset;
+            cursor: context-menu;
+          }
+          .canvas-region-label {
+            position: absolute;
+            top: -24px;
+            left: -1px;
+            max-width: 180px;
+            min-height: 22px;
+            padding: 2px 7px;
+            border: 1px solid #2563eb;
+            border-radius: 4px;
+            background: color-mix(in srgb, #eff6ff 92%, white);
+            color: #1d4ed8;
+            font: inherit;
+            font-size: 12px;
+            line-height: 16px;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: context-menu;
+            pointer-events: auto;
+          }
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge,
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge-path,
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge-interaction,
@@ -279,6 +389,12 @@ def demo_styles() -> rx.Component:
             border: 0;
             background: transparent;
             opacity: 0;
+          }
+          .react-flow__edge.schematic-branch-edge .react-flow__edge-path {
+            transition: stroke 120ms ease;
+          }
+          .react-flow__edge.schematic-branch-edge:hover .react-flow__edge-path {
+            stroke: #2563eb !important;
           }
           .schematic-edge-label {
             position: absolute;

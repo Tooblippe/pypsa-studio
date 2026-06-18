@@ -67,7 +67,9 @@ from pypsa_studio.routers import (
 )
 from pypsa_studio.types import (
     AttrRow,
+    CanvasRegion,
     CanvasSnapshot,
+    CarrierVisibilityRow,
     ComponentRow,
     DiagramAttr,
     DiagramEdge,
@@ -877,8 +879,49 @@ def load_layout_positions(
             layout_entry["bus_side"] = bus_side
         if bool(entry.get("locked")):
             layout_entry["locked"] = True
+        if entry.get("visible") is False:
+            layout_entry["visible"] = False
         positions[(component_name, pypsa_name)] = layout_entry
     return positions
+
+
+def load_layout_regions(csv_folder: Path) -> list[CanvasRegion]:
+    """Load saved builder canvas regions from the layout sidecar."""
+    layout_path = csv_folder / LAYOUT_FILE_NAME
+    if not layout_path.exists():
+        return []
+    try:
+        payload = json.loads(layout_path.read_text(encoding="utf-8"))
+    except OSError, json.JSONDecodeError:
+        return []
+
+    regions: list[CanvasRegion] = []
+    entries = payload.get("regions", []) if isinstance(payload, dict) else []
+    for index, entry in enumerate(entries if isinstance(entries, list) else []):
+        if not isinstance(entry, dict):
+            continue
+        try:
+            x = float(entry.get("x", 0))
+            y = float(entry.get("y", 0))
+            width = float(entry.get("width", 0))
+            height = float(entry.get("height", 0))
+        except TypeError, ValueError:
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        region_id = str(entry.get("id", "")).strip() or f"region-{index + 1}"
+        name = str(entry.get("name", "")).strip() or f"Region {index + 1}"
+        regions.append(
+            {
+                "id": region_id,
+                "name": name,
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            }
+        )
+    return regions
 
 
 def apply_layout_positions(
@@ -910,6 +953,10 @@ def apply_layout_positions(
                 layout = node.setdefault("layout", {})
                 if isinstance(layout, dict):
                     layout["locked"] = True
+            if position.get("visible") is False:
+                layout = node.setdefault("layout", {})
+                if isinstance(layout, dict):
+                    layout["visible"] = False
     apply_bus_side_layout_from_positions(diagram_nodes)
 
 
@@ -1178,6 +1225,14 @@ def normalize_bus_side(value: object) -> str:
     return side if side in {"left", "right"} else ""
 
 
+def is_canvas_visible(node: DiagramNode | dict[str, object]) -> bool:
+    """Return whether a diagram node should be visibly rendered on the canvas."""
+    layout = node.get("layout", {})
+    if not isinstance(layout, dict):
+        return True
+    return layout.get("visible") is not False
+
+
 def default_bus_side_for_component(component_name: str) -> str:
     """Return the default visual bus side for a bus-attached component."""
     if component_name == "generators":
@@ -1444,7 +1499,8 @@ class State(rx.State):
     pypsa_example_networks: list[ExampleNetworkGroup] = PYPSA_EXAMPLE_NETWORKS
     diagram_nodes: list[DiagramNode] = []
     diagram_edges: list[DiagramEdge] = []
-    diagram_model: DiagramModel = {"components": [], "connections": []}
+    canvas_regions: list[CanvasRegion] = []
+    diagram_model: DiagramModel = {"components": [], "connections": [], "regions": []}
     network_component_rows: list[NetworkObjectComponentRow] = []
     network_connection_rows: list[NetworkObjectConnectionRow] = []
     canvas_bus_names: list[str] = []
@@ -1465,8 +1521,13 @@ class State(rx.State):
     can_redo_canvas: bool = False
     armed_component: str = ""
     armed_branch_component: str = ""
+    rectangle_selection_armed: bool = False
     pending_branch_node_id: str = ""
     branch_bus0_node_id: str = ""
+    is_mark_region_dialog_open: bool = False
+    mark_region_name: str = ""
+    pending_region_bounds: dict[str, float] = {}
+    pending_region_node_ids: list[str] = []
     load_message: str = "Using empty PyPSA network defaults."
     load_error: str = ""
     loaded_source: str = ""
@@ -1517,6 +1578,10 @@ class State(rx.State):
     is_network_data_dialog_open: bool = False
     network_data_active_component: str = "buses"
     network_data_tabs: list[NetworkDataTab] = []
+    is_carrier_visibility_dialog_open: bool = False
+    carrier_visibility_rows: list[CarrierVisibilityRow] = []
+    visible_canvas_carriers: list[str] = []
+    carrier_visibility_initialized: bool = False
     is_settings_dialog_open: bool = False
     settings_tabs: list[SettingsTab] = []
     settings_active_tab: str = ""
@@ -1531,6 +1596,15 @@ class State(rx.State):
         self.time_series_tables = {}
         self.is_network_data_dialog_open = False
         self.network_data_tabs = []
+        self.is_carrier_visibility_dialog_open = False
+        self.carrier_visibility_rows = []
+        self.visible_canvas_carriers = []
+        self.carrier_visibility_initialized = False
+        self.canvas_regions = []
+        self.is_mark_region_dialog_open = False
+        self.mark_region_name = ""
+        self.pending_region_bounds = {}
+        self.pending_region_node_ids = []
 
     def _load_settings_file(self) -> dict[str, dict[str, object]]:
         """Parse settings.toml, returning all sections and non-_options keys.
@@ -2415,13 +2489,17 @@ Router_type_options = [
         """Return a deep snapshot of undoable canvas state."""
         return {
             "diagram_nodes": copy.deepcopy(self.diagram_nodes),
+            "canvas_regions": copy.deepcopy(self.canvas_regions),
             "component_counters": copy.deepcopy(self.component_counters),
             "route_version": self.route_version,
             "selected_node_id": self.selected_node_id,
             "armed_component": self.armed_component,
             "armed_branch_component": self.armed_branch_component,
+            "rectangle_selection_armed": self.rectangle_selection_armed,
             "pending_branch_node_id": self.pending_branch_node_id,
             "branch_bus0_node_id": self.branch_bus0_node_id,
+            "visible_canvas_carriers": copy.deepcopy(self.visible_canvas_carriers),
+            "carrier_visibility_initialized": self.carrier_visibility_initialized,
         }
 
     def _set_canvas_history_availability(self) -> None:
@@ -2447,13 +2525,23 @@ Router_type_options = [
     def _restore_canvas_snapshot(self, snapshot: CanvasSnapshot) -> None:
         """Restore canvas state from a history snapshot."""
         self.diagram_nodes = copy.deepcopy(snapshot["diagram_nodes"])
+        self.canvas_regions = copy.deepcopy(snapshot["canvas_regions"])
         self.component_counters = copy.deepcopy(snapshot["component_counters"])
         self.route_version = int(snapshot["route_version"])
         self.armed_component = str(snapshot["armed_component"])
         self.armed_branch_component = str(snapshot["armed_branch_component"])
+        self.rectangle_selection_armed = bool(snapshot["rectangle_selection_armed"])
         self.pending_branch_node_id = str(snapshot["pending_branch_node_id"])
         self.branch_bus0_node_id = str(snapshot["branch_bus0_node_id"])
+        self.visible_canvas_carriers = copy.deepcopy(
+            snapshot["visible_canvas_carriers"]
+        )
+        self.carrier_visibility_initialized = bool(
+            snapshot["carrier_visibility_initialized"]
+        )
         self._sync_diagram_model()
+        if self.is_carrier_visibility_dialog_open:
+            self._sync_carrier_visibility_rows()
         self.select_node(str(snapshot["selected_node_id"]))
 
     def undo_canvas(self) -> None:
@@ -2705,6 +2793,10 @@ Router_type_options = [
         self.save_network_folder = save_network_folder
         self.other_csv_tables = artifacts["other_csv_tables"]
         self.time_series_tables = artifacts["time_series_tables"]
+        self.is_carrier_visibility_dialog_open = False
+        self.carrier_visibility_rows = []
+        self.visible_canvas_carriers = []
+        self.carrier_visibility_initialized = False
         return network, loaded_network
 
     def _request_canvas_fit_view(self) -> None:
@@ -2961,13 +3053,17 @@ Router_type_options = [
             network,
         )
         layout_positions = await asyncio.to_thread(load_layout_positions, csv_folder)
+        layout_regions = await asyncio.to_thread(load_layout_regions, csv_folder)
         apply_layout_positions(diagram_nodes, layout_positions)
-        self._apply_canvas_nodes(diagram_nodes, component_counters)
+        self._apply_canvas_nodes(diagram_nodes, component_counters, layout_regions)
         if remember and is_pypsa_csv_folder(csv_folder):
             await asyncio.to_thread(write_last_network_folder, csv_folder)
         yield
 
-        if not any(not node["hidden"] for node in self.diagram_nodes):
+        if not any(
+            not node["hidden"] and is_canvas_visible(node)
+            for node in self.diagram_nodes
+        ):
             self.operation_status = "Network loaded with no visible canvas components."
             self.load_message = f"Loaded {csv_folder} onto canvas."
             self.export_message = f"Loaded network folder {csv_folder} onto canvas."
@@ -3056,11 +3152,13 @@ Router_type_options = [
         self,
         diagram_nodes: list[DiagramNode],
         component_counters: dict[str, int],
+        canvas_regions: list[CanvasRegion] | None = None,
     ) -> None:
         """Assign prepared canvas nodes to state and rebuild derived data."""
         self.diagram_nodes = []
         self.diagram_edges = []
-        self.diagram_model = {"components": [], "connections": []}
+        self.canvas_regions = []
+        self.diagram_model = {"components": [], "connections": [], "regions": []}
         self.network_component_rows = []
         self.network_connection_rows = []
         self.canvas_bus_names = []
@@ -3070,14 +3168,23 @@ Router_type_options = [
         self.component_counters = {}
         self.armed_component = ""
         self.armed_branch_component = ""
+        self.rectangle_selection_armed = False
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
+        self.is_mark_region_dialog_open = False
+        self.mark_region_name = ""
+        self.pending_region_bounds = {}
+        self.pending_region_node_ids = []
+        self.carrier_visibility_rows = []
+        self.visible_canvas_carriers = []
+        self.carrier_visibility_initialized = False
         if self.is_network_data_dialog_open:
             self._sync_network_data_dialog()
         self._clear_canvas_history()
 
         self.diagram_nodes = diagram_nodes
         self.component_counters = component_counters
+        self.canvas_regions = copy.deepcopy(canvas_regions or [])
         self._sync_diagram_model()
         self._mark_network_saved()
         self._request_canvas_fit_view()
@@ -3140,11 +3247,12 @@ Router_type_options = [
 
     def clear_canvas(self) -> None:
         """Clear all canvas state and selection state."""
-        if self.diagram_nodes:
+        if self.diagram_nodes or self.canvas_regions:
             self._push_canvas_history()
         self.diagram_nodes = []
         self.diagram_edges = []
-        self.diagram_model = {"components": [], "connections": []}
+        self.canvas_regions = []
+        self.diagram_model = {"components": [], "connections": [], "regions": []}
         self.network_component_rows = []
         self.network_connection_rows = []
         self.canvas_bus_names = []
@@ -3154,8 +3262,16 @@ Router_type_options = [
         self.component_counters = {}
         self.armed_component = ""
         self.armed_branch_component = ""
+        self.rectangle_selection_armed = False
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
+        self.is_mark_region_dialog_open = False
+        self.mark_region_name = ""
+        self.pending_region_bounds = {}
+        self.pending_region_node_ids = []
+        self.carrier_visibility_rows = []
+        self.visible_canvas_carriers = []
+        self.carrier_visibility_initialized = False
 
     def set_clear_canvas_dialog_open(self, value: bool) -> None:
         """Update whether the clear canvas confirmation is open."""
@@ -3179,6 +3295,10 @@ Router_type_options = [
         self.save_network_folder = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
+        self.is_carrier_visibility_dialog_open = False
+        self.carrier_visibility_rows = []
+        self.visible_canvas_carriers = []
+        self.carrier_visibility_initialized = False
         self.load_message = "Using empty PyPSA network defaults."
         self.load_error = ""
         self.export_message = ""
@@ -3198,6 +3318,10 @@ Router_type_options = [
         self.save_network_folder = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
+        self.is_carrier_visibility_dialog_open = False
+        self.carrier_visibility_rows = []
+        self.visible_canvas_carriers = []
+        self.carrier_visibility_initialized = False
         self.is_loading_network = False
         self.network_load_status = ""
         self.export_message = ""
@@ -3510,7 +3634,10 @@ Router_type_options = [
 
     async def auto_route_canvas(self):
         """Route the canvas with the selected JavaScript or Python router."""
-        if not any(not node["hidden"] for node in self.diagram_nodes):
+        if not any(
+            not node["hidden"] and is_canvas_visible(node)
+            for node in self.diagram_nodes
+        ):
             self.export_error = "Add at least one component before routing."
             self.export_message = ""
             yield
@@ -3683,6 +3810,7 @@ Router_type_options = [
         if component_name not in NETWORK_MODEL.branch_components:
             return
         self.armed_component = ""
+        self.rectangle_selection_armed = False
         if self.armed_branch_component == component_name:
             self.armed_branch_component = ""
             self.pending_branch_node_id = ""
@@ -3704,11 +3832,26 @@ Router_type_options = [
         if component_name != "buses" and not has_bus_attr(component):
             return
         self.armed_branch_component = ""
+        self.rectangle_selection_armed = False
         self.pending_branch_node_id = ""
         self.branch_bus0_node_id = ""
         self.armed_component = (
             "" if self.armed_component == component_name else component_name
         )
+
+    def toggle_rectangle_selection_armed(self) -> None:
+        """Toggle the one-shot rectangle selection tool."""
+        next_armed = not self.rectangle_selection_armed
+        self.rectangle_selection_armed = next_armed
+        if next_armed:
+            self.armed_component = ""
+            self.armed_branch_component = ""
+            self.pending_branch_node_id = ""
+            self.branch_bus0_node_id = ""
+
+    def set_rectangle_selection_armed(self, armed: bool) -> None:
+        """Set whether rectangle selection mode is armed."""
+        self.rectangle_selection_armed = bool(armed)
 
     def handle_branch_bus_click(self, node_id: str) -> None:
         """Advance the two-click branch creation workflow for a bus node."""
@@ -4327,14 +4470,435 @@ Router_type_options = [
                 )
                 return
 
+    def lock_all_canvas_components(self) -> None:
+        """Lock every visible canvas component at its current position."""
+        lockable_nodes = [
+            node
+            for node in self.diagram_nodes
+            if not node.get("hidden") and is_canvas_visible(node)
+        ]
+        if not any(not self.is_node_layout_locked(node) for node in lockable_nodes):
+            return
+
+        self._push_canvas_history()
+        for node in lockable_nodes:
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            layout["locked"] = True
+        self._sync_diagram_model()
+        if self.selected_node_id:
+            self.select_node(self.selected_node_id)
+
+    def unlock_all_canvas_components(self) -> None:
+        """Unlock every visible canvas component with a locked position."""
+        locked_nodes = [
+            node
+            for node in self.diagram_nodes
+            if not node.get("hidden")
+            and is_canvas_visible(node)
+            and self.is_node_layout_locked(node)
+        ]
+        if not locked_nodes:
+            return
+
+        self._push_canvas_history()
+        for node in locked_nodes:
+            layout = node.get("layout", {})
+            if isinstance(layout, dict):
+                layout.pop("locked", None)
+        self._sync_diagram_model()
+        if self.selected_node_id:
+            self.select_node(self.selected_node_id)
+
+    def set_node_canvas_visible(self, node_id: str, visible: bool) -> None:
+        """Set whether a diagram node should be visibly rendered on the canvas."""
+        target_node_id = str(node_id)
+        for node in self.diagram_nodes:
+            if node["id"] != target_node_id:
+                continue
+            next_visible = bool(visible)
+            if is_canvas_visible(node) == next_visible:
+                return
+
+            self._push_canvas_history()
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            if next_visible:
+                layout.pop("visible", None)
+            else:
+                layout["visible"] = False
+            if self.selected_node_id == target_node_id and not next_visible:
+                self.selected_node_id = ""
+                self.selected_component_name = ""
+                self.selected_attr_rows = []
+            self._sync_diagram_model()
+            return
+
+    def hide_canvas_selection(self, node_ids: list[object]) -> None:
+        """Hide all selected canvas diagram nodes in one undoable operation."""
+        selected_node_ids = {
+            str(node_id) for node_id in node_ids if str(node_id).strip()
+        }
+        if not selected_node_ids:
+            self.rectangle_selection_armed = False
+            return
+        matching_nodes = [
+            node for node in self.diagram_nodes if node["id"] in selected_node_ids
+        ]
+        if not matching_nodes:
+            self.rectangle_selection_armed = False
+            return
+        if not any(is_canvas_visible(node) for node in matching_nodes):
+            self.rectangle_selection_armed = False
+            return
+
+        self._push_canvas_history()
+        for node in matching_nodes:
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            layout["visible"] = False
+        if self.selected_node_id in selected_node_ids:
+            self.selected_node_id = ""
+            self.selected_component_name = ""
+            self.selected_attr_rows = []
+        self.rectangle_selection_armed = False
+        self._sync_diagram_model()
+
+    def lock_canvas_selection(self, node_ids: list[object]) -> None:
+        """Lock visible selected canvas nodes in one undoable operation."""
+        selected_node_ids = {
+            str(node_id) for node_id in node_ids if str(node_id).strip()
+        }
+        if not selected_node_ids:
+            self.rectangle_selection_armed = False
+            return
+        lockable_nodes = [
+            node
+            for node in self.diagram_nodes
+            if node["id"] in selected_node_ids
+            and not node.get("hidden")
+            and is_canvas_visible(node)
+        ]
+        if not any(not self.is_node_layout_locked(node) for node in lockable_nodes):
+            self.rectangle_selection_armed = False
+            return
+
+        self._push_canvas_history()
+        for node in lockable_nodes:
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            layout["locked"] = True
+        self.rectangle_selection_armed = False
+        self._sync_diagram_model()
+        if self.selected_node_id:
+            self.select_node(self.selected_node_id)
+
+    def set_mark_region_name(self, value: str) -> None:
+        """Set the pending marked region display name."""
+        self.mark_region_name = str(value)
+
+    def set_mark_region_dialog_open(self, value: bool) -> None:
+        """Set whether the mark region naming dialog is open."""
+        self.is_mark_region_dialog_open = bool(value)
+        if not value:
+            self.mark_region_name = ""
+            self.pending_region_bounds = {}
+            self.pending_region_node_ids = []
+
+    def _coerce_region_bounds(
+        self, bounds: dict[str, object]
+    ) -> dict[str, float] | None:
+        """Return normalized positive region bounds, or None when invalid."""
+        try:
+            x = float(bounds.get("x", 0))
+            y = float(bounds.get("y", 0))
+            width = float(bounds.get("width", 0))
+            height = float(bounds.get("height", 0))
+        except TypeError, ValueError:
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return {"x": x, "y": y, "width": width, "height": height}
+
+    def open_mark_region_dialog(
+        self, node_ids: list[object], bounds: dict[str, object]
+    ) -> None:
+        """Open the mark region dialog for a rectangle selection."""
+        region_bounds = self._coerce_region_bounds(bounds)
+        if region_bounds is None:
+            self.rectangle_selection_armed = False
+            return
+        self.pending_region_node_ids = [
+            str(node_id) for node_id in node_ids if str(node_id).strip()
+        ]
+        self.pending_region_bounds = region_bounds
+        self.mark_region_name = ""
+        self.is_mark_region_dialog_open = True
+        self.rectangle_selection_armed = False
+
+    def _next_canvas_region_id(self) -> str:
+        """Return the next unique marked region id."""
+        existing_ids = {str(region.get("id", "")) for region in self.canvas_regions}
+        index = len(existing_ids) + 1
+        region_id = f"region-{index}"
+        while region_id in existing_ids:
+            index += 1
+            region_id = f"region-{index}"
+        return region_id
+
+    def confirm_mark_region(self) -> None:
+        """Lock the pending selected nodes and add a saved marked region."""
+        bounds = self._coerce_region_bounds(self.pending_region_bounds)
+        if bounds is None:
+            self.set_mark_region_dialog_open(False)
+            return
+
+        selected_node_ids = set(self.pending_region_node_ids)
+        name = self.mark_region_name.strip() or f"Region {len(self.canvas_regions) + 1}"
+        self._push_canvas_history()
+        for node in self.diagram_nodes:
+            if node["id"] not in selected_node_ids:
+                continue
+            if node.get("hidden") or not is_canvas_visible(node):
+                continue
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            layout["locked"] = True
+        self.canvas_regions.append(
+            {
+                "id": self._next_canvas_region_id(),
+                "name": name,
+                "x": bounds["x"],
+                "y": bounds["y"],
+                "width": bounds["width"],
+                "height": bounds["height"],
+            }
+        )
+        self.is_mark_region_dialog_open = False
+        self.mark_region_name = ""
+        self.pending_region_bounds = {}
+        self.pending_region_node_ids = []
+        self._sync_diagram_model()
+        if self.selected_node_id:
+            self.select_node(self.selected_node_id)
+
+    def delete_canvas_region(self, region_id: str) -> None:
+        """Delete a marked canvas region by id."""
+        target_id = str(region_id)
+        if not target_id:
+            return
+        if not any(region["id"] == target_id for region in self.canvas_regions):
+            return
+        self._push_canvas_history()
+        self.canvas_regions = [
+            region for region in self.canvas_regions if region["id"] != target_id
+        ]
+        self._sync_diagram_model()
+
+    def _carrier_table_values(self) -> list[str]:
+        """Return carrier names from the editable carriers table."""
+        table = self._ensure_network_data_table("carriers")
+        carriers: list[str] = []
+        seen: set[str] = set()
+        for row in table["rows"]:
+            carrier = str(row.get("id", "")).strip()
+            if not carrier or carrier in seen:
+                continue
+            carriers.append(carrier)
+            seen.add(carrier)
+        return carriers
+
+    def _component_count_for_carrier(self, carrier: str) -> int:
+        """Return the number of diagram nodes with the given carrier value."""
+        carrier_value = str(carrier)
+        return sum(
+            1
+            for node in self.diagram_nodes
+            if str(node.get("attrs", {}).get("carrier", "")).strip() == carrier_value
+        )
+
+    def _sync_carrier_visibility_rows(self) -> None:
+        """Refresh carrier visibility dialog rows from the carriers table."""
+        carriers = self._carrier_table_values()
+        if not self.carrier_visibility_initialized:
+            self.visible_canvas_carriers = carriers
+            self.carrier_visibility_initialized = True
+        visible_carriers = set(self.visible_canvas_carriers)
+        self.carrier_visibility_rows = [
+            {
+                "carrier": carrier,
+                "label": carrier,
+                "checked": carrier in visible_carriers,
+                "component_count": self._component_count_for_carrier(carrier),
+            }
+            for carrier in carriers
+        ]
+
+    def open_carrier_visibility_dialog(self) -> None:
+        """Open the carrier-based canvas visibility dialog."""
+        carriers = self._carrier_table_values()
+        if not self.carrier_visibility_initialized:
+            self.visible_canvas_carriers = carriers
+            self.carrier_visibility_initialized = True
+        else:
+            valid_carriers = set(carriers)
+            self.visible_canvas_carriers = [
+                carrier
+                for carrier in self.visible_canvas_carriers
+                if carrier in valid_carriers
+            ]
+        self._sync_carrier_visibility_rows()
+        self.is_carrier_visibility_dialog_open = True
+
+    def set_carrier_visibility_dialog_open(self, value: bool) -> None:
+        """Set whether the carrier visibility dialog is open."""
+        self.is_carrier_visibility_dialog_open = bool(value)
+        if value:
+            self._sync_carrier_visibility_rows()
+
+    def _set_nodes_with_carrier_visible(self, carrier: str, visible: bool) -> bool:
+        """Set visibility for all nodes with a carrier and return whether any changed."""
+        changed = False
+        carrier_value = str(carrier)
+        for node in self.diagram_nodes:
+            attrs = node.get("attrs", {})
+            if str(attrs.get("carrier", "")).strip() != carrier_value:
+                continue
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            if visible:
+                if layout.get("visible") is False:
+                    layout.pop("visible", None)
+                    changed = True
+            elif layout.get("visible") is not False:
+                layout["visible"] = False
+                changed = True
+        return changed
+
+    def _has_nodes_with_carrier_visibility_change(
+        self, carrier: str, visible: bool
+    ) -> bool:
+        """Return whether setting carrier visibility would change any node."""
+        carrier_value = str(carrier)
+        for node in self.diagram_nodes:
+            attrs = node.get("attrs", {})
+            if str(attrs.get("carrier", "")).strip() != carrier_value:
+                continue
+            if is_canvas_visible(node) != bool(visible):
+                return True
+        return False
+
+    async def set_canvas_carrier_visible(self, carrier: str, checked: bool):
+        """Live-toggle canvas visibility for all components using a carrier."""
+        carrier_value = str(carrier)
+        next_checked = bool(checked)
+        if not self.carrier_visibility_initialized:
+            self.visible_canvas_carriers = self._carrier_table_values()
+            self.carrier_visibility_initialized = True
+        current = set(self.visible_canvas_carriers)
+        if next_checked:
+            current.add(carrier_value)
+        else:
+            current.discard(carrier_value)
+        self.visible_canvas_carriers = [
+            value for value in self._carrier_table_values() if value in current
+        ]
+        self._sync_carrier_visibility_rows()
+        yield
+
+        if self._has_nodes_with_carrier_visibility_change(carrier_value, next_checked):
+            self._push_canvas_history()
+            self._set_nodes_with_carrier_visible(carrier_value, next_checked)
+            if self.selected_node_id:
+                selected_node = next(
+                    (
+                        node
+                        for node in self.diagram_nodes
+                        if node["id"] == self.selected_node_id
+                    ),
+                    None,
+                )
+                if selected_node is not None and not is_canvas_visible(selected_node):
+                    self.selected_node_id = ""
+                    self.selected_component_name = ""
+                    self.selected_attr_rows = []
+            self._sync_diagram_model()
+            self._sync_carrier_visibility_rows()
+            yield
+
+    def unhide_all_canvas_components(self) -> None:
+        """Clear canvas visibility overrides from all diagram nodes."""
+        changed = False
+        for node in self.diagram_nodes:
+            layout = node.get("layout", {})
+            if isinstance(layout, dict) and layout.get("visible") is False:
+                changed = True
+                break
+        if not changed:
+            self.visible_canvas_carriers = self._carrier_table_values()
+            self.carrier_visibility_initialized = True
+            self._sync_carrier_visibility_rows()
+            return
+
+        self._push_canvas_history()
+        for node in self.diagram_nodes:
+            layout = node.get("layout", {})
+            if isinstance(layout, dict):
+                layout.pop("visible", None)
+        self.visible_canvas_carriers = self._carrier_table_values()
+        self.carrier_visibility_initialized = True
+        self._sync_diagram_model()
+        self._sync_carrier_visibility_rows()
+
     def handle_canvas_context_menu_action(self, payload: dict[str, object]) -> None:
         """Dispatch a selected canvas context-menu action."""
         action_id = str(payload.get("action_id", ""))
         target_kind = str(payload.get("target_kind", ""))
         node_id = str(payload.get("node_id", ""))
-        if action_id not in {"select", "delete", "toggle_lock"}:
+        if action_id not in {
+            "select",
+            "delete",
+            "toggle_lock",
+            "hide",
+            "lock_selection",
+            "mark_regions",
+            "finish_rectangle_selection",
+        }:
             return
-        if target_kind not in {"component", "branch"}:
+        if target_kind not in {"component", "branch", "selection", "region"}:
+            return
+        if action_id == "finish_rectangle_selection":
+            self.rectangle_selection_armed = False
+            return
+        if target_kind == "region":
+            if action_id == "delete":
+                self.delete_canvas_region(str(payload.get("region_id", "")))
+            return
+        if target_kind == "selection":
+            node_ids = payload.get("node_ids", [])
+            region_bounds = payload.get("region_bounds", {})
+            if action_id == "hide" and isinstance(node_ids, list):
+                self.hide_canvas_selection(node_ids)
+            if action_id == "lock_selection" and isinstance(node_ids, list):
+                self.lock_canvas_selection(node_ids)
+            if (
+                action_id == "mark_regions"
+                and isinstance(node_ids, list)
+                and isinstance(region_bounds, dict)
+            ):
+                self.open_mark_region_dialog(node_ids, region_bounds)
             return
         if not any(node["id"] == node_id for node in self.diagram_nodes):
             return
@@ -4349,6 +4913,10 @@ Router_type_options = [
 
         if action_id == "toggle_lock" and target_kind == "component":
             self.toggle_node_layout_locked(node_id)
+            return
+
+        if action_id == "hide":
+            self.set_node_canvas_visible(node_id, False)
 
     def delete_selected_node(self) -> None:
         """Delete the selected component and rebuild derived canvas data."""
@@ -4587,6 +5155,7 @@ Router_type_options = [
         self.diagram_model = {
             "components": components,
             "connections": connections,
+            "regions": copy.deepcopy(self.canvas_regions),
         }
         self.network_component_rows = [
             {
@@ -4630,6 +5199,8 @@ Router_type_options = [
         for node in self.diagram_nodes:
             component_name = node["component"]
             if component_name == "buses":
+                continue
+            if not is_canvas_visible(node):
                 continue
 
             attrs = node["attrs"]
