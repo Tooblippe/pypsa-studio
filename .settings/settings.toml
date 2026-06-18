@@ -1,0 +1,20 @@
+[Theme]
+mode = "Dark"
+mode_options = [
+  "Light",
+  "Dark"
+]
+
+[Canvas]
+Router_type = "Python grid"
+Router_type_options = [
+  "Elk orthoganal",
+  "Python grid"
+]
+
+[Voltages]
+Voltage_type = "600"
+Voltage_type_options = [
+  "400",
+  "600"
+]
