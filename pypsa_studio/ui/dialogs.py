@@ -11,6 +11,8 @@ from pypsa_studio.types import (
     NetworkDataTab,
     OtherTableCell,
     OtherTableRow,
+    SettingField,
+    SettingsTab,
     StandardTypeRow,
 )
 
@@ -1437,4 +1439,128 @@ def standard_type_table() -> rx.Component:
         overflow_x="auto",
         overflow_y="auto",
         margin_top="12px",
+    )
+
+
+def settings_field_control(field: rx.Var[SettingField]) -> rx.Component:
+    """Render the appropriate Reflex control for a settings field based on its type."""
+    return rx.cond(
+        field["type"] == "bool",
+        rx.switch(
+            checked=field["value"].to(bool),
+            on_change=lambda value: State.update_setting(
+                field["section"],
+                field["key"],
+                value,
+            ),
+        ),
+        rx.cond(
+            field["options"].length() > 0,
+            rx.select.root(
+                rx.select.trigger(placeholder="Select value", width="100%"),
+                rx.select.content(
+                    rx.select.group(
+                        rx.foreach(
+                            field["options"],
+                            lambda opt: rx.select.item(opt, value=opt),
+                        ),
+                    ),
+                ),
+                value=field["value"].to(str),
+                on_change=lambda value: State.update_setting(
+                    field["section"],
+                    field["key"],
+                    value,
+                ),
+                width="100%",
+            ),
+            rx.input(
+                value=field["value"].to(str),
+                type=rx.cond(
+                    rx.Var.create(["int", "float"]).contains(field["type"]),
+                    "number",
+                    "text",
+                ),
+                on_change=lambda value: State.update_setting(
+                    field["section"],
+                    field["key"],
+                    value,
+                ),
+                width="100%",
+            ),
+        ),
+    )
+
+
+def settings_field_row(field: rx.Var[SettingField]) -> rx.Component:
+    """Render one settings field row with label and control."""
+    return rx.hstack(
+        rx.text(field["key"], size="2", weight="medium", width="180px"),
+        rx.box(settings_field_control(field), flex="1"),
+        rx.text(field["type"], size="1", color_scheme="gray", width="80px"),
+        spacing="3",
+        align="center",
+        width="100%",
+    )
+
+
+def settings_tab_trigger_item(tab: rx.Var[SettingsTab]) -> rx.Component:
+    """Render one settings tab trigger."""
+    return rx.tabs.trigger(rx.text(tab["label"], size="2"), value=tab["label"])
+
+
+def settings_tab_content(tab: rx.Var[SettingsTab]) -> rx.Component:
+    """Render one settings tab content panel wrapped in a card."""
+    return rx.tabs.content(
+        rx.card(
+            rx.vstack(
+                rx.foreach(tab["fields"], settings_field_row),
+                spacing="4",
+                align="stretch",
+                padding="12px",
+            ),
+            size="2",
+        ),
+        value=tab["label"],
+    )
+
+
+def settings_dialog() -> rx.Component:
+    """Render the settings dialog with tabbed sections."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.hstack(
+                rx.dialog.title("Settings"),
+                rx.dialog.close(
+                    rx.button(
+                        rx.icon("x", size=16),
+                        aria_label="Close settings",
+                        title="Close",
+                        variant="ghost",
+                        size="2",
+                    )
+                ),
+                justify="between",
+                align="center",
+                width="100%",
+            ),
+            rx.tabs.root(
+                rx.tabs.list(
+                    rx.foreach(State.settings_tabs, settings_tab_trigger_item),
+                    overflow_x="auto",
+                    flex_wrap="nowrap",
+                    style={"align-items": "flex-start"},
+                ),
+                rx.foreach(State.settings_tabs, settings_tab_content),
+                value=State.settings_active_tab,
+                on_change=State.set_settings_active_tab,
+                orientation="vertical",
+                width="100%",
+                margin_top="12px",
+            ),
+            width="560px",
+            max_width="96vw",
+        ),
+        open=State.is_settings_dialog_open,
+        on_open_change=State.set_settings_dialog_open,
     )

@@ -182,3 +182,16 @@ class CanvasSnapshot(TypedDict):
     armed_branch_component: str
     pending_branch_node_id: str
     branch_bus0_node_id: str
+
+
+class SettingField(TypedDict):
+    section: str
+    key: str
+    value: object
+    type: str
+    options: list[str]
+
+
+class SettingsTab(TypedDict):
+    label: str
+    fields: list[SettingField]

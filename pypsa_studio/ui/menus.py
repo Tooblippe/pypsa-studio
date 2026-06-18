@@ -147,6 +147,11 @@ def file_menu() -> rx.Component:
                 on_select=State.open_network_in_jupyter,
                 disabled=State.operation_kind != "",
             ),
+            rx.menu.separator(),
+            rx.menu.item(
+                "Settings",
+                on_select=State.open_settings_dialog,
+            ),
             rx.menu.sub(
                 rx.menu.sub_trigger("Examples"),
                 rx.menu.sub_content(

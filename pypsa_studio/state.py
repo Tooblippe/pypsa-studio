@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -41,6 +42,8 @@ from pypsa_studio.constants import (
     PYTHON_ROUTERS,
     REFERENCE_ATTR_TABLES,
     ROUTER_OPTIONS,
+    SETTINGS_DIR,
+    SETTINGS_FILE,
     SNAPSHOT_TABLE_COLUMNS,
     SNAPSHOT_TABLE_COMPONENTS,
     SNAPSHOT_TABLE_INDEX_NAMES,
@@ -82,6 +85,8 @@ from pypsa_studio.types import (
     OtherTableCell,
     OtherTableRow,
     RouterOption,
+    SettingField,
+    SettingsTab,
     StandardTypeRow,
 )
 
@@ -413,6 +418,33 @@ def write_last_network_folder(csv_folder: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_toml_file(data: dict[str, dict[str, object]]) -> None:
+    """Write a nested dict as a TOML file to SETTINGS_FILE."""
+    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for section, pairs in data.items():
+        lines.append(f"[{section}]")
+        for key, value in pairs.items():
+            if isinstance(value, list):
+                str_values = [str(v) for v in value]
+                lines.append(f"{key} = [")
+                for i, sv in enumerate(str_values):
+                    if i < len(str_values) - 1:
+                        lines.append(f'  "{sv}",')
+                    else:
+                        lines.append(f'  "{sv}"')
+                lines.append("]")
+            elif isinstance(value, bool):
+                lines.append(f"{key} = {str(value).lower()}")
+            elif isinstance(value, (int, float)):
+                lines.append(f"{key} = {value}")
+            else:
+                escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+                lines.append(f'{key} = "{escaped}"')
+        lines.append("")
+    SETTINGS_FILE.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
 
 
 def copy_static_csv_folder_for_pypsa_import(csv_folder: Path) -> Path:
@@ -1468,6 +1500,9 @@ class State(rx.State):
     is_network_data_dialog_open: bool = False
     network_data_active_component: str = "buses"
     network_data_tabs: list[NetworkDataTab] = []
+    is_settings_dialog_open: bool = False
+    settings_tabs: list[SettingsTab] = []
+    settings_active_tab: str = ""
 
     def load_default_model(self) -> None:
         """Reset catalog metadata to the empty PyPSA network defaults."""
@@ -1479,6 +1514,140 @@ class State(rx.State):
         self.time_series_tables = {}
         self.is_network_data_dialog_open = False
         self.network_data_tabs = []
+
+    def _load_settings_file(self) -> dict[str, dict[str, object]]:
+        """Parse settings.toml, returning all sections and non-_options keys.
+
+        If the file does not exist, create it with sensible defaults first.
+        """
+        if not SETTINGS_FILE.exists():
+            self._create_default_settings_file()
+
+        raw: dict[str, dict[str, object]] = {}
+        try:
+            with open(SETTINGS_FILE, "rb") as fh:
+                raw = tomllib.load(fh)
+        except OSError, tomllib.TOMLDecodeError:
+            pass
+
+        result: dict[str, dict[str, object]] = {}
+        for section, pairs in raw.items():
+            filtered: dict[str, object] = {}
+            for key, value in pairs.items():
+                if key.endswith("_options"):
+                    continue
+                filtered[key] = value
+            if filtered:
+                result[section] = filtered
+
+        return result
+
+    def _create_default_settings_file(self) -> None:
+        """Create the settings.toml file with default sections."""
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        default = """[Theme]
+mode = "light"
+mode_options = [
+  "light",
+  "dark"
+]
+
+[Canvas]
+Router_type = "Elk"
+Router_type_options = [
+  "Elk"
+]
+"""
+        SETTINGS_FILE.write_text(default.lstrip("\n"), encoding="utf-8")
+
+    def _load_settings_options(self) -> dict[str, list[str]]:
+        """Read the {key}_options lists from the settings.toml file."""
+        if not SETTINGS_FILE.exists():
+            return {}
+        try:
+            with open(SETTINGS_FILE, "rb") as fh:
+                data = tomllib.load(fh)
+        except OSError, tomllib.TOMLDecodeError:
+            return {}
+        options: dict[str, list[str]] = {}
+        for section, pairs in data.items():
+            for key, value in pairs.items():
+                if key.endswith("_options") and isinstance(value, list):
+                    base_key = key[: -len("_options")]
+                    options[f"{section}.{base_key}"] = [str(v) for v in value]
+        return options
+
+    def _save_settings_file(self) -> None:
+        """Persist the current in-memory settings to settings.toml."""
+        data: dict[str, dict[str, object]] = {}
+        for tab in self.settings_tabs:
+            for field in tab["fields"]:
+                data.setdefault(field["section"], {})[field["key"]] = field["value"]
+
+        options = self._load_settings_options()
+        for dotted, opts in options.items():
+            section, key = dotted.split(".", 1)
+            if section in data and key in data[section]:
+                data[section][f"{key}_options"] = opts
+
+        _write_toml_file(data)
+
+    def _build_settings_tabs(self) -> list[SettingsTab]:
+        """Build settings_tabs from the parsed TOML file."""
+        data = self._load_settings_file()
+        file_options = self._load_settings_options()
+        tabs: list[SettingsTab] = []
+        for section, pair in data.items():
+            fields: list[SettingField] = []
+            for key, value in pair.items():
+                dotted = f"{section}.{key}"
+                opts = file_options.get(dotted, [])
+                py_type = type(value).__name__
+                fields.append(
+                    {
+                        "section": section,
+                        "key": key,
+                        "value": value,
+                        "type": py_type,
+                        "options": opts,
+                    }
+                )
+            tabs.append({"label": section, "fields": fields})
+        return tabs
+
+    def open_settings_dialog(self) -> None:
+        """Build settings tabs and open the settings dialog."""
+        self.settings_tabs = self._build_settings_tabs()
+        if self.settings_tabs:
+            self.settings_active_tab = self.settings_tabs[0]["label"]
+        self.is_settings_dialog_open = True
+
+    def set_settings_dialog_open(self, value: bool) -> None:
+        """Update whether the settings dialog is open."""
+        self.is_settings_dialog_open = value
+
+    def set_settings_active_tab(self, value: str) -> None:
+        """Update the active settings tab."""
+        self.settings_active_tab = value
+
+    def update_setting(self, section: str, key: str, value: object) -> None:
+        """Update a single setting value and persist immediately."""
+        tabs = list(self.settings_tabs)
+        for tab in tabs:
+            if tab["label"] == section:
+                fields = list(tab["fields"])
+                for i, field in enumerate(fields):
+                    if field["key"] == key:
+                        fields[i] = {
+                            **field,
+                            "value": value,
+                            "type": type(value).__name__,
+                        }
+                        break
+                tab["fields"] = fields
+                break
+        self.settings_tabs = tabs
+        self._save_settings_file()
 
     def _mark_network_dirty(self) -> None:
         """Record that the in-memory network differs from the saved source."""

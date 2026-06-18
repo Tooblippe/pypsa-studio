@@ -13,6 +13,7 @@ from pypsa_studio.ui.dialogs import (
     network_name_dialog,
     operation_dialog,
     other_component_dialog,
+    settings_dialog,
     time_series_plot_dialog,
     unsaved_changes_dialog,
 )
@@ -34,6 +35,7 @@ def index() -> rx.Component:
         other_component_dialog(),
         time_series_plot_dialog(),
         network_data_dialog(),
+        settings_dialog(),
         menu_bar(),
         rx.box(
             rx.cond(
