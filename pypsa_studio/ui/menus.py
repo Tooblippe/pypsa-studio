@@ -148,10 +148,6 @@ def file_menu() -> rx.Component:
                 disabled=State.operation_kind != "",
             ),
             rx.menu.separator(),
-            rx.menu.item(
-                "Settings",
-                on_select=State.open_settings_dialog,
-            ),
             rx.menu.sub(
                 rx.menu.sub_trigger("Examples"),
                 rx.menu.sub_content(
@@ -163,6 +159,11 @@ def file_menu() -> rx.Component:
                     size="2",
                     variant="soft",
                 ),
+            ),
+            rx.menu.separator(),
+            rx.menu.item(
+                "Settings",
+                on_select=State.open_settings_dialog,
             ),
             align="start",
             size="2",
