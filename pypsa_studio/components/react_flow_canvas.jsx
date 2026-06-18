@@ -593,6 +593,69 @@ function SchematicNode({ data, selected }) {
 const nodeTypes = { schematic: SchematicNode };
 const edgeTypes = { step: SchematicStepEdge };
 
+const CANVAS_CONTEXT_MENU_ITEMS = [
+  {
+    id: "select",
+    label: "Select",
+    targetKinds: ["component", "branch"],
+  },
+  {
+    id: "delete",
+    label: "Delete",
+    targetKinds: ["component", "branch"],
+  },
+];
+
+function canvasContextMenuItemsForTarget(contextMenu) {
+  if (!contextMenu?.targetKind) return [];
+  return CANVAS_CONTEXT_MENU_ITEMS.filter((item) =>
+    item.targetKinds.includes(contextMenu.targetKind),
+  );
+}
+
+function canvasContextTargetLabel(contextMenu) {
+  if (!contextMenu?.targetKind) return "";
+  return contextMenu.targetKind === "branch" ? "Branch" : "Component";
+}
+
+function CanvasContextMenu({ contextMenu, onAction }) {
+  if (!contextMenu) return null;
+  const menuItems = canvasContextMenuItemsForTarget(contextMenu);
+  if (!menuItems.length) return null;
+
+  return (
+    <div
+      className="canvas-context-menu"
+      role="menu"
+      aria-label={`${canvasContextTargetLabel(contextMenu)} actions`}
+      style={{
+        left: `${contextMenu.x}px`,
+        top: `${contextMenu.y}px`,
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div className="canvas-context-menu-title">
+        {canvasContextTargetLabel(contextMenu)}
+      </div>
+      {menuItems.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className="canvas-context-menu-item"
+          role="menuitem"
+          onClick={(event) => {
+            event.stopPropagation();
+            onAction(item.id, contextMenu);
+          }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function CanvasInner({
   nodes = [],
   edges = [],
@@ -607,6 +670,7 @@ function CanvasInner({
   onEdgeSelect,
   onNodesUpdate,
   onRouteComplete,
+  onCanvasContextMenuAction,
 }) {
   const flowWrapperRef = useRefReactFlowCanvas(null);
   const lastRoutedVersionRef = useRefReactFlowCanvas(0);
@@ -617,6 +681,7 @@ function CanvasInner({
     nodeId: "",
     side: "",
   });
+  const [contextMenu, setContextMenu] = useStateReactFlowCanvas(null);
   const reactFlow = useReactFlow();
 
   const isConnectionDrag = Boolean(
@@ -784,6 +849,35 @@ function CanvasInner({
     [reactFlow],
   );
 
+  const contextMenuPositionFromEvent = useCallbackReactFlowCanvas((event) => {
+    const bounds = flowWrapperRef.current?.getBoundingClientRect();
+    if (!bounds) {
+      return { x: event.clientX, y: event.clientY };
+    }
+    const menuWidth = 180;
+    const menuHeight = 96;
+    return {
+      x: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - menuHeight - 8)),
+    };
+  }, []);
+
+  const closeContextMenu = useCallbackReactFlowCanvas(() => {
+    setContextMenu(null);
+  }, []);
+
+  useEffectReactFlowCanvas(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        closeContextMenu();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeContextMenu]);
+
   useEffectReactFlowCanvas(() => {
     if (!fitViewVersion) return;
     if (lastHandledFitViewVersionRef.current === fitViewVersion) return;
@@ -885,12 +979,13 @@ function CanvasInner({
   );
 
   const onDragEnter = useCallbackReactFlowCanvas((event) => {
+    closeContextMenu();
     const payload = dragPayloadFromEvent(event);
     const component = parseComponentPayload(payload);
     const componentName = component.component || "";
     if (!componentName) return;
     setDragComponent(componentName);
-  }, []);
+  }, [closeContextMenu]);
 
   const onDragLeave = useCallbackReactFlowCanvas((event) => {
     if (!flowWrapperRef.current?.contains(event.relatedTarget)) {
@@ -902,6 +997,7 @@ function CanvasInner({
   const onDrop = useCallbackReactFlowCanvas(
     (event) => {
       event.preventDefault();
+      closeContextMenu();
       const payload = dragPayloadFromEvent(event);
       if (!payload) return;
 
@@ -924,11 +1020,12 @@ function CanvasInner({
         window.__pypsaBuilderActivePayload = null;
       }
     },
-    [busIdAtPoint, flowPositionFromEvent, onNodeDrop],
+    [busIdAtPoint, closeContextMenu, flowPositionFromEvent, onNodeDrop],
   );
 
   const handlePaneClick = useCallbackReactFlowCanvas(
     (event) => {
+      closeContextMenu();
       if (!armedComponent || armedBranchComponent) return;
       const meta = symbolMetaForComponent(armedComponent);
       const position = flowPositionFromEvent(event);
@@ -939,11 +1036,18 @@ function CanvasInner({
         bus_node_id: "",
       });
     },
-    [armedBranchComponent, armedComponent, flowPositionFromEvent, onNodeDrop],
+    [
+      armedBranchComponent,
+      armedComponent,
+      closeContextMenu,
+      flowPositionFromEvent,
+      onNodeDrop,
+    ],
   );
 
   const handleNodeClick = useCallbackReactFlowCanvas(
     (_, node) => {
+      closeContextMenu();
       const isBus = node?.data?.isBus;
       if (armedBranchComponent && isBus) {
         onBranchBusClick?.(node.id);
@@ -951,31 +1055,85 @@ function CanvasInner({
       }
       onNodeSelect?.(node.id);
     },
-    [armedBranchComponent, onBranchBusClick, onNodeSelect],
+    [armedBranchComponent, closeContextMenu, onBranchBusClick, onNodeSelect],
   );
 
   const handleNodeMouseDown = useCallbackReactFlowCanvas(
-    (_, node) => {
+    (event, node) => {
+      if (event?.button === 2) return;
+      closeContextMenu();
       if (!armedBranchComponent) {
         onNodeSelect?.(node.id);
       }
     },
-    [armedBranchComponent, onNodeSelect],
+    [armedBranchComponent, closeContextMenu, onNodeSelect],
   );
 
   const handleEdgeClick = useCallbackReactFlowCanvas(
     (_, edge) => {
+      closeContextMenu();
       if (armedBranchComponent) return;
       const componentNodeId = edge?.attrs?.component_node_id;
       if (componentNodeId) {
         onEdgeSelect?.(componentNodeId);
       }
     },
-    [armedBranchComponent, onEdgeSelect],
+    [armedBranchComponent, closeContextMenu, onEdgeSelect],
+  );
+
+  const handleNodeContextMenu = useCallbackReactFlowCanvas(
+    (event, node) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!node?.id) return;
+      const position = contextMenuPositionFromEvent(event);
+      setContextMenu({
+        targetKind: "component",
+        targetId: node.id,
+        nodeId: node.id,
+        x: position.x,
+        y: position.y,
+      });
+    },
+    [contextMenuPositionFromEvent],
+  );
+
+  const handleEdgeContextMenu = useCallbackReactFlowCanvas(
+    (event, edge) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (armedBranchComponent) return;
+      const componentNodeId = edge?.attrs?.component_node_id;
+      if (!isBranchEdgeComponent(edge?.component)) return;
+      if (!componentNodeId) return;
+      const position = contextMenuPositionFromEvent(event);
+      setContextMenu({
+        targetKind: "branch",
+        targetId: edge.id,
+        nodeId: componentNodeId,
+        x: position.x,
+        y: position.y,
+      });
+    },
+    [armedBranchComponent, contextMenuPositionFromEvent],
+  );
+
+  const handleContextMenuAction = useCallbackReactFlowCanvas(
+    (actionId, menuContext) => {
+      if (!menuContext?.nodeId) return;
+      onCanvasContextMenuAction?.({
+        action_id: actionId,
+        target_kind: menuContext.targetKind,
+        node_id: menuContext.nodeId,
+      });
+      closeContextMenu();
+    },
+    [closeContextMenu, onCanvasContextMenuAction],
   );
 
   const handleNodeDrag = useCallbackReactFlowCanvas(
     (_, node) => {
+      closeContextMenu();
       const hasBusAttr = Object.prototype.hasOwnProperty.call(node?.data?.attrs || {}, "bus");
       const isConnected = Boolean(node?.data?.attrs?.bus);
       if (!hasBusAttr || node?.data?.isBus) {
@@ -1022,7 +1180,7 @@ function CanvasInner({
       );
       setDragBusSidePreview({ nodeId: "", side: "" });
     },
-    [busIdAtFlowPoint, nodes],
+    [busIdAtFlowPoint, closeContextMenu, nodes],
   );
 
   const handleNodeDragStop = useCallbackReactFlowCanvas(
@@ -1100,6 +1258,8 @@ function CanvasInner({
         onNodeClick={handleNodeClick}
         onNodeMouseDown={handleNodeMouseDown}
         onEdgeClick={handleEdgeClick}
+        onNodeContextMenu={handleNodeContextMenu}
+        onEdgeContextMenu={handleEdgeContextMenu}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
@@ -1109,6 +1269,10 @@ function CanvasInner({
         <Background />
         <Controls />
       </ReactFlow>
+      <CanvasContextMenu
+        contextMenu={contextMenu}
+        onAction={handleContextMenuAction}
+      />
     </div>
   );
 }

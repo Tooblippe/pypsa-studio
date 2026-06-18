@@ -28,6 +28,7 @@ class ReactFlowCanvas(rx.Component):
     on_edge_select: rx.EventHandler[lambda node_id: [node_id]]
     on_nodes_update: rx.EventHandler[lambda nodes: [nodes]]
     on_route_complete: rx.EventHandler[lambda: []]
+    on_canvas_context_menu_action: rx.EventHandler[lambda payload: [payload]]
 
     def _get_custom_code(self) -> str:
         """Inline the JSX implementation so Reflex bundles it without an import path."""

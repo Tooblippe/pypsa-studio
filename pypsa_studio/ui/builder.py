@@ -511,6 +511,9 @@ def builder_tab() -> rx.Component:
                         on_edge_select=State.select_node,
                         on_nodes_update=State.update_node_positions,
                         on_route_complete=State.finish_auto_route,
+                        on_canvas_context_menu_action=(
+                            State.handle_canvas_context_menu_action
+                        ),
                     ),
                     flex="1",
                     min_width="0",

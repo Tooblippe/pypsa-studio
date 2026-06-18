@@ -4211,9 +4211,32 @@ Router_type_options = [
         self.selected_component_name = ""
         self.selected_attr_rows = []
 
+    def handle_canvas_context_menu_action(self, payload: dict[str, object]) -> None:
+        """Dispatch a selected canvas context-menu action."""
+        action_id = str(payload.get("action_id", ""))
+        target_kind = str(payload.get("target_kind", ""))
+        node_id = str(payload.get("node_id", ""))
+        if action_id not in {"select", "delete"}:
+            return
+        if target_kind not in {"component", "branch"}:
+            return
+        if not any(node["id"] == node_id for node in self.diagram_nodes):
+            return
+
+        if action_id == "select":
+            self.select_node(node_id)
+            return
+
+        if action_id == "delete":
+            self.delete_node_by_id(node_id)
+
     def delete_selected_node(self) -> None:
         """Delete the selected component and rebuild derived canvas data."""
-        selected_node_id = str(self.selected_node_id)
+        self.delete_node_by_id(str(self.selected_node_id))
+
+    def delete_node_by_id(self, node_id: str) -> None:
+        """Delete a diagram node by id and rebuild derived canvas data."""
+        selected_node_id = str(node_id)
         if not selected_node_id:
             return
 

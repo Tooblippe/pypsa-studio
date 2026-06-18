@@ -151,6 +151,42 @@ def demo_styles() -> rx.Component:
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge-textwrapper {
             pointer-events: none;
           }
+          .canvas-context-menu {
+            position: absolute;
+            z-index: 30;
+            min-width: 172px;
+            padding: 5px;
+            border: 1px solid color-mix(in srgb, var(--gray-8) 72%, transparent);
+            border-radius: 6px;
+            background: var(--color-panel-solid);
+            box-shadow: 0 12px 28px color-mix(in srgb, var(--gray-12) 22%, transparent);
+          }
+          .canvas-context-menu-title {
+            padding: 4px 8px 5px;
+            color: var(--gray-10);
+            font-size: 11px;
+            line-height: 14px;
+          }
+          .canvas-context-menu-item {
+            display: block;
+            width: 100%;
+            min-height: 30px;
+            padding: 6px 8px;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--gray-12);
+            font: inherit;
+            font-size: 13px;
+            line-height: 18px;
+            text-align: left;
+            cursor: pointer;
+          }
+          .canvas-context-menu-item:hover,
+          .canvas-context-menu-item:focus-visible {
+            background: var(--accent-4);
+            outline: none;
+          }
           .schematic-symbol-layer {
             position: relative;
             display: flex;
