@@ -48,6 +48,7 @@ COLOR_MAP = {
     "lignite": "black",
 }
 
+
 # %%
 def build_network(gas_price: float) -> pypsa.Network:
     n = pypsa.Network()
@@ -86,6 +87,7 @@ def build_network(gas_price: float) -> pypsa.Network:
             marginal_cost=mc,
         )
     return n
+
 
 # %%
 caps_det = pd.DataFrame(index=SCENARIOS, columns=TECH.keys())

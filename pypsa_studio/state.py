@@ -4038,6 +4038,9 @@ class State(rx.State):
 
     def _sync_diagram_model(self) -> None:
         """Rebuild derived edges, display rows, and bus-name lists."""
+        for node in self.diagram_nodes:
+            if node["component"] in NETWORK_MODEL.branch_components:
+                node["hidden"] = True
         self._sync_diagram_edges()
         components = [
             {
@@ -4060,6 +4063,8 @@ class State(rx.State):
                 "type": edge["type"],
                 "label": edge["label"],
                 "component": edge["component"],
+                "icon_src": edge.get("icon_src", ""),
+                "icon_svg": edge.get("icon_svg", ""),
                 "style": edge["style"],
                 "attrs": edge["attrs"],
             }
@@ -4134,6 +4139,8 @@ class State(rx.State):
                             "type": "step",
                             "label": str(attrs.get("name") or node["id"]),
                             "component": component_name,
+                            "icon_src": node.get("icon_src", ""),
+                            "icon_svg": node.get("icon_svg", ""),
                             "style": branch_style,
                             "attrs": {
                                 "component_node_id": node["id"],
@@ -4173,6 +4180,8 @@ class State(rx.State):
                         "type": "step",
                         "label": None,
                         "component": component_name,
+                        "icon_src": "",
+                        "icon_svg": "",
                         "style": {},
                         "attrs": {
                             "component_node_id": node["id"],

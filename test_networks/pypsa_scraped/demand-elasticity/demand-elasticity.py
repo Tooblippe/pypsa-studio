@@ -10,6 +10,7 @@ plt.style.use("bmh")
 n = pypsa.examples.model_energy()
 n.remove("Generator", "load shedding")
 
+
 # %%
 def get_price_duration(n: pypsa.Network, bus: str = "electricity") -> pd.Series:
     s = (
@@ -19,6 +20,7 @@ def get_price_duration(n: pypsa.Network, bus: str = "electricity") -> pd.Series:
     )
     s.index = np.arange(0, 100, 100 / len(s.index))
     return s
+
 
 # %%
 days = n.snapshots.normalize().to_series()

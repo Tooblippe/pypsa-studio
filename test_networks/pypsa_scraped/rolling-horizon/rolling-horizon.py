@@ -19,7 +19,7 @@ start_date = "2011-03-01 00:00:00"
 end_date = "2011-03-03 23:00:00"
 
 p_max_pu_select = p_max_pu[start_date:end_date]
-p_max_pu_select.plot(ylabel="Capacity Factor");
+p_max_pu_select.plot(ylabel="Capacity Factor")
 
 # %%
 n.set_snapshots(p_max_pu_select.index)
@@ -43,7 +43,7 @@ n.add(
     efficiency_store=0.95,
     efficiency_dispatch=0.95,
     max_hours=8,
-);
+)
 
 # %%
 m = n.copy()

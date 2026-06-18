@@ -14,7 +14,7 @@ n.add("Bus", "diesel")
 n.add("Store", "diesel", bus="diesel", e_cyclic=True, e_nom=1000)
 
 n.add("Bus", "hydrogen")
-n.add("Store", "hydrogen", bus="hydrogen", e_cyclic=True, e_nom=1000);
+n.add("Store", "hydrogen", bus="hydrogen", e_cyclic=True, e_nom=1000)
 
 # %%
 n.add(
@@ -24,7 +24,7 @@ n.add(
     efficiency=0.8,
     bus0="electricity",
     bus1="hydrogen",
-);
+)
 
 # %%
 n.add("Carrier", "co2", co2_emissions=-1)
@@ -33,7 +33,7 @@ n.add("Bus", "co2 atmosphere", carrier="co2")
 n.add("Store", "co2 atmosphere", e_nom=1000, e_min_pu=-1, bus="co2 atmosphere")
 
 n.add("Bus", "co2 stored")
-n.add("Store", "co2 stored", e_nom=1000, e_min_pu=-1, bus="co2 stored");
+n.add("Store", "co2 stored", e_nom=1000, e_min_pu=-1, bus="co2 stored")
 
 # %%
 n.add(
@@ -45,7 +45,7 @@ n.add(
     bus2="co2 stored",
     efficiency=1,
     efficiency2=-1,
-);
+)
 
 # %%
 n.add(
@@ -57,7 +57,7 @@ n.add(
     efficiency=1,
     efficiency2=-1,
     p_nom=5,
-);
+)
 
 # %%
 n.add(
@@ -69,7 +69,7 @@ n.add(
     efficiency=1,
     efficiency2=1,
     p_nom=2,
-);
+)
 
 # %%
 n.add("Bus", "gas")
@@ -98,7 +98,7 @@ n.add(
     efficiency=0.4,
     efficiency2=0.9,
     efficiency3=0.1,
-);
+)
 
 # %%
 n.add("Bus", "biomass")
@@ -134,7 +134,7 @@ n.add(
     efficiency=0.4,
     efficiency2=1,
     efficiency3=-1,
-);
+)
 
 # %%
 n.add(
@@ -142,10 +142,10 @@ n.add(
     "co2_limit",
     sense="<=",
     constant=-50,
-);
+)
 
 # %%
-n.optimize();
+n.optimize()
 
 # %%
 n.stores_t.e.plot()

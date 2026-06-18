@@ -69,6 +69,7 @@ n.add("Load", "heat demand", carrier="heat", bus="heat", p_set=p_set)
 
 n.loads_t.p_set.div(1e3).plot(figsize=(12, 4), ylabel="GW")
 
+
 # %%
 def cop(t_source, t_sink=55):
     delta_t = t_sink - t_source
@@ -80,7 +81,7 @@ temp = pd.read_csv(url, skiprows=2, index_col=0, parse_dates=True).loc[
     "2015", "temperature"
 ][::4]
 
-cop(temp).plot(figsize=(10, 2), ylabel="COP");
+cop(temp).plot(figsize=(10, 2), ylabel="COP")
 
 # %%
 plt.scatter(temp, cop(temp))

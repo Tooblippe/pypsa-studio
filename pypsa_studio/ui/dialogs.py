@@ -838,6 +838,10 @@ def demo_styles() -> rx.Component:
           .schematic-terminal-right::after {
             left: 100%;
           }
+          .schematic-node-symbol {
+            display: block;
+            flex: 0 0 auto;
+          }
           .schematic-node-symbol svg {
             display: block;
             width: 100%;
@@ -877,6 +881,31 @@ def demo_styles() -> rx.Component:
           }
           .schematic-edge-label[data-selected="true"] {
             outline: 1px solid var(--accent-8);
+          }
+          .schematic-edge-symbol {
+            position: absolute;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 4;
+            box-sizing: content-box;
+            width: var(--edge-symbol-size);
+            height: var(--edge-symbol-size);
+            padding: 3px;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--gray-12);
+            pointer-events: none;
+            transform-origin: center;
+          }
+          .schematic-edge-symbol img {
+            flex: 0 0 auto;
+            display: block;
+            width: var(--edge-symbol-size) !important;
+            height: var(--edge-symbol-size) !important;
+            max-width: var(--edge-symbol-size) !important;
+            max-height: var(--edge-symbol-size) !important;
+            object-fit: contain;
           }
           [data-is-root-theme="dark"] .schematic-node-symbol,
           [data-theme="dark"] .schematic-node-symbol,

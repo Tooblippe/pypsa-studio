@@ -13,7 +13,7 @@ generators = {
 # %%
 x = np.linspace(0, 1, 101)
 df = pd.DataFrame({k: v["c"] + x * v["m"] for k, v in generators.items()}, index=x)
-df.plot(ylim=[0, 50], title="Screening Curve");
+df.plot(ylim=[0, 50], title="Screening Curve")
 
 # %%
 n = pypsa.Network()
@@ -70,7 +70,7 @@ n.generators.p_nom_extendable = False
 n.generators.p_nom = n.generators.p_nom_opt
 
 # %%
-n.optimize();
+n.optimize()
 
 # %%
 n.buses_t.marginal_price.plot(title="Price Duration Curve")

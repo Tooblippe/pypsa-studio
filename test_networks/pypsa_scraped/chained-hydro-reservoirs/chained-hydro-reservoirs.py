@@ -36,7 +36,7 @@ n.add(
     bus="electricity 2",
     p_set=[30, 25, 20, 20, 40, 50, 45, 30],
     carrier="electricity",
-);
+)
 
 # %%
 n.add(

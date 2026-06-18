@@ -34,6 +34,7 @@ const BUS_MIN_HEIGHT_PX = 72;
 const BUS_CONNECTION_SPACING_PX = 24;
 const BUS_CONNECTION_PADDING_PX = 10;
 const EDGE_LABEL_VERTICAL_THRESHOLD_PX = 8;
+const EDGE_SYMBOL_SIZE_PX = 24;
 
 function componentToBuilderKind(component) {
   const key = String(component || "").toLowerCase();
@@ -52,6 +53,10 @@ function componentToBuilderKind(component) {
     line: "line",
     links: "link",
     link: "link",
+    transformers: "transformer",
+    transformer: "transformer",
+    processes: "process",
+    process: "process",
   };
   return map[key] || "";
 }
@@ -112,6 +117,22 @@ function isAttachableComponent(component) {
     component &&
       !["buses", "lines", "links", "transformers"].includes(component),
   );
+}
+
+/**
+ * Return whether a component should be represented by an edge, not a node.
+ */
+function isBranchEdgeComponent(component) {
+  return [
+    "lines",
+    "line",
+    "links",
+    "link",
+    "processes",
+    "process",
+    "transformers",
+    "transformer",
+  ].includes(String(component || "").toLowerCase());
 }
 
 function parseComponentPayload(payload) {
@@ -243,6 +264,22 @@ function shouldRotateStepEdgeLabel(sourceY, targetY, sourcePosition, targetPosit
   return usesHorizontalHandles && Math.abs(sourceY - targetY) > EDGE_LABEL_VERTICAL_THRESHOLD_PX;
 }
 
+/**
+ * Return a screen-space label offset that keeps text clear of the edge path.
+ */
+function edgeLabelOffset(rotateLabel) {
+  return rotateLabel ? { x: 9, y: 0 } : { x: 0, y: -17 };
+}
+
+/**
+ * Return whether an edge should render a midpoint component symbol.
+ */
+function shouldRenderEdgeSymbol(component) {
+  return ["processes", "process", "transformers", "transformer"].includes(
+    String(component || "").toLowerCase(),
+  );
+}
+
 function SchematicStepEdge({
   id,
   sourceX,
@@ -255,6 +292,7 @@ function SchematicStepEdge({
   markerEnd,
   markerStart,
   label,
+  data = {},
   selected,
 }) {
   const [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -272,6 +310,8 @@ function SchematicStepEdge({
     sourcePosition,
     targetPosition,
   );
+  const labelOffset = edgeLabelOffset(rotateLabel);
+  const showEdgeSymbol = shouldRenderEdgeSymbol(data.component) && data.iconSrc;
 
   return (
     <>
@@ -282,13 +322,54 @@ function SchematicStepEdge({
         markerStart={markerStart}
         style={style}
       />
+      {showEdgeSymbol ? (
+        <EdgeLabelRenderer>
+          <span
+            className="schematic-edge-symbol"
+            style={{
+              "--edge-symbol-size": `${EDGE_SYMBOL_SIZE_PX}px`,
+              position: "absolute",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 4,
+              boxSizing: "content-box",
+              width: `${EDGE_SYMBOL_SIZE_PX}px`,
+              height: `${EDGE_SYMBOL_SIZE_PX}px`,
+              padding: "3px",
+              borderRadius: "4px",
+              background: "transparent",
+              color: "var(--gray-12)",
+              pointerEvents: "none",
+              transformOrigin: "center",
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) rotate(${rotateLabel ? 90 : 0}deg)`,
+            }}
+          >
+            <img
+              src={data.iconSrc}
+              alt=""
+              style={{
+                flex: "0 0 auto",
+                display: "block",
+                width: `${EDGE_SYMBOL_SIZE_PX}px`,
+                height: `${EDGE_SYMBOL_SIZE_PX}px`,
+                maxWidth: `${EDGE_SYMBOL_SIZE_PX}px`,
+                maxHeight: `${EDGE_SYMBOL_SIZE_PX}px`,
+                objectFit: "contain",
+              }}
+            />
+          </span>
+        </EdgeLabelRenderer>
+      ) : null}
       {label ? (
         <EdgeLabelRenderer>
           <div
             className="schematic-edge-label"
             data-selected={selected ? "true" : "false"}
             style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) rotate(${rotateLabel ? 90 : 0}deg)`,
+              background: "transparent",
+              boxShadow: "none",
+              transform: `translate(-50%, -50%) translate(${labelX + labelOffset.x}px, ${labelY + labelOffset.y}px) rotate(${rotateLabel ? 90 : 0}deg)`,
             }}
           >
             {label}
@@ -326,7 +407,7 @@ function SchematicNode({ data, selected }) {
     : { top: `${iconHandleTop}px`, left: rightContact, right: "auto", transform: "translate(-50%, -50%)" };
   const showConnectorTerminals = !data.isBus && hasConnectorTerminal(data.component);
   const connectorSides = connectorTerminalSides(data.component);
-  const symbolStyle = { height: `${symbolHeight}px` };
+  const symbolStyle = { width: `${symbolMeta.width}px`, height: `${symbolHeight}px` };
 
   return (
     <div
@@ -436,7 +517,7 @@ function CanvasInner({
 
   const flowNodes = useMemoReactFlowCanvas(
     () =>
-      nodes.filter((node) => !node.hidden).map((node) => {
+      nodes.filter((node) => !node.hidden && !isBranchEdgeComponent(node.component)).map((node) => {
         const meta = symbolMetaForComponent(node.component);
         const label = displayNameForNode(node);
         const connectionHandles = node.component === "buses" ? edgeRouting.handlesByBusId[node.id] || [] : [];
@@ -483,7 +564,15 @@ function CanvasInner({
 
   const flowEdges = useMemoReactFlowCanvas(
     () => {
-      return [...edgeRouting.edges];
+      return edgeRouting.edges.map((edge) => ({
+        ...edge,
+        data: {
+          ...(edge.data || {}),
+          component: edge.component || "",
+          iconSrc: edge.icon_src || "",
+          iconSvg: edge.icon_svg || "",
+        },
+      }));
     },
     [edgeRouting.edges],
   );

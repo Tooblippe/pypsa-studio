@@ -10,7 +10,7 @@ n.add("Bus", "seville")
 
 n.add("Load", "demand", bus="seville", p_set=100)
 
-n.add("Generator", "grid", bus="seville", p_nom=100, marginal_cost=120, carrier="grid");
+n.add("Generator", "grid", bus="seville", p_nom=100, marginal_cost=120, carrier="grid")
 
 # %%
 p_max_pu = pd.read_csv(
@@ -33,7 +33,7 @@ n.add(
     capital_cost=annuity(0.05, 25) * 400_000,
     p_nom_extendable=True,
     carrier="solar",
-);
+)
 
 # %%
 cc_inverter = annuity(0.05, 25) * 170_000
@@ -49,7 +49,7 @@ n.add(
     efficiency_store=np.sqrt(0.9),
     efficiency_dispatch=np.sqrt(0.9),
     max_hours=4,
-);
+)
 
 # %%
 n.optimize()

@@ -43,9 +43,9 @@ print(f"Number of modules built: {n_modules:.0f}")
 
 # %%
 # Verify the capacity is indeed a multiple of the module size
-assert abs(n_modules - round(n_modules)) < 1e-6, (
-    "Capacity should be a multiple of module size!"
-)
+assert (
+    abs(n_modules - round(n_modules)) < 1e-6
+), "Capacity should be a multiple of module size!"
 print("Capacity is correctly constrained to module size multiples.")
 
 # %%

@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import pypsa
 
-
 DEFAULT_PAGE_NAME = globals().get("DEFAULT_PAGE_NAME", "")
 SOURCE_BASE_URL = "https://docs.pypsa.org/latest/examples"
 
@@ -97,7 +96,9 @@ def display(*values: object, **_: object) -> None:
         print(value)
 
 
-def run_cells(cells: list[str], page_name: str, continue_on_error: bool) -> dict[str, object]:
+def run_cells(
+    cells: list[str], page_name: str, continue_on_error: bool
+) -> dict[str, object]:
     namespace: dict[str, object] = {
         "__name__": "__main__",
         "display": display,
@@ -108,7 +109,10 @@ def run_cells(cells: list[str], page_name: str, continue_on_error: bool) -> dict
     for index, cell in enumerate(cells, start=1):
         print(f"Running scraped cell {index}/{len(cells)}", flush=True)
         try:
-            exec(compile(prepare_cell(cell), f"<{page_name}:cell-{index}>", "exec"), namespace)
+            exec(
+                compile(prepare_cell(cell), f"<{page_name}:cell-{index}>", "exec"),
+                namespace,
+            )
         except Exception as exc:
             if not continue_on_error:
                 raise
@@ -170,7 +174,11 @@ def main() -> None:
     code_output = args.code_output or output_dir / f"{args.page_name}.py"
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    html = args.html_input.read_text(encoding="utf-8") if args.html_input else fetch_page(url)
+    html = (
+        args.html_input.read_text(encoding="utf-8")
+        if args.html_input
+        else fetch_page(url)
+    )
     cells = extract_code_cells(html)
     write_code(cells, code_output)
 

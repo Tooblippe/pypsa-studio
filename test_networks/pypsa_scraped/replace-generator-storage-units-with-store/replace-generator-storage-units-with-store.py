@@ -3,6 +3,7 @@ from numpy.testing import assert_almost_equal, assert_array_almost_equal
 
 import pypsa
 
+
 # %%
 def replace_storage_unit(n: pypsa.Network, name: str) -> tuple:
     """
@@ -125,6 +126,7 @@ def replace_storage_unit(n: pypsa.Network, name: str) -> tuple:
     n.remove("StorageUnit", name)
 
     return bus_name, link_1_name, link_2_name, store_name, gen_name, extra_functionality
+
 
 # %%
 n_r = pypsa.examples.storage_hvdc()

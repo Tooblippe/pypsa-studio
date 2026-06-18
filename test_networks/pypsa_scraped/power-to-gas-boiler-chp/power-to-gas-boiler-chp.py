@@ -74,7 +74,7 @@ n.add(
     p_nom_extendable=True,
 )
 
-n.add("Store", "gas depot", bus="0 gas", e_cyclic=True, e_nom=1000);
+n.add("Store", "gas depot", bus="0 gas", e_cyclic=True, e_nom=1000)
 
 # %%
 n.add("Bus", "0 heat", carrier="heat")

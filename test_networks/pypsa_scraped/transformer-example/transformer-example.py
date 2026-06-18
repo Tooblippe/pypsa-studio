@@ -20,7 +20,8 @@ n.add(
     "Line", "LV cable", type="NAYY 4x50 SE", bus0="LV1 bus", bus1="LV2 bus", length=0.1
 )
 n.add("Generator", "External Grid", bus="MV bus", control="Slack", marginal_cost=10)
-n.add("Load", "LV load", bus="LV2 bus", p_set=0.1, q_set=0.05);
+n.add("Load", "LV load", bus="LV2 bus", p_set=0.1, q_set=0.05)
+
 
 # %%
 def run_power_flow(n: pypsa.Network) -> pd.DataFrame:
@@ -32,6 +33,7 @@ def run_power_flow(n: pypsa.Network) -> pd.DataFrame:
             "Voltage Magnitude": n.buses_t.v_mag_pu.loc["now"],
         }
     )
+
 
 # %%
 run_power_flow(n)

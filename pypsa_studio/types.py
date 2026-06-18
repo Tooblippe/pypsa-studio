@@ -55,6 +55,8 @@ class DiagramEdge(TypedDict):
     type: str
     label: str | None
     component: str | None
+    icon_src: str | None
+    icon_svg: str | None
     style: dict[str, object]
     attrs: dict[str, object]
 

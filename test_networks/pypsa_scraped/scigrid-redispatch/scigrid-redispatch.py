@@ -14,7 +14,7 @@ n = o.copy()  # for redispatch model
 m = o.copy()  # for market model
 
 # %%
-o.plot();
+o.plot()
 
 # %%
 o.optimize()
@@ -37,7 +37,7 @@ for c in m.components:
     m.remove(c.name, c.static.loc[internal].index)
 
 m.remove("Bus", m.buses.index)
-m.add("Bus", ["North", "South"]);
+m.add("Bus", ["North", "South"])
 
 # %%
 m.optimize()
@@ -74,7 +74,7 @@ n.add(
     p_min_pu=down,
     p_max_pu=0,
     **g_down.drop(["p_max_pu", "p_min_pu"], axis=1),
-);
+)
 
 # %%
 n.optimize()
@@ -114,7 +114,7 @@ n.plot(
     bus_size=redispatch_down,
     bus_color="red",
     title="Redispatch: ramp down / curtail",
-);
+)
 
 # %%
 grouper = n.generators.index.str.split(" ramp", expand=True).get_level_values(0)

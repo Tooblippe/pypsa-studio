@@ -33,7 +33,7 @@ n.add(
     efficiency2=0.3,  # heat per unit of gas
 )
 
-n.optimize();
+n.optimize()
 
 # %%
 n.loads_t.p

@@ -18,7 +18,7 @@ n.add(
     capital_cost=500,
 )
 
-n.add("Load", "heat demand", bus="heat", p_set=20);
+n.add("Load", "heat demand", bus="heat", p_set=20)
 
 # %%
 n.add(
@@ -29,7 +29,7 @@ n.add(
     efficiency=[2.5, 3.0, 3.2, 3.0],
     capital_cost=1000,
     p_nom_extendable=True,
-);
+)
 
 # %%
 n.add(
@@ -39,10 +39,10 @@ n.add(
     e_cyclic=True,
     e_nom=100,
     standing_loss=0.01,
-);
+)
 
 # %%
-n.optimize();
+n.optimize()
 
 # %%
 pd.DataFrame({attr: n.stores_t[attr]["water tank"] for attr in ["p", "e"]}).round(3)

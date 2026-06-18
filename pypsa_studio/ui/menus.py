@@ -98,12 +98,12 @@ def pypsa_example_menu_group(group: rx.Var[ExampleNetworkGroup]) -> rx.Component
     )
 
 
-def network_menu() -> rx.Component:
+def file_menu() -> rx.Component:
     """Render the top-level network file menu."""
     return rx.menu.root(
         rx.menu.trigger(
             rx.button(
-                "Network",
+                "File",
                 rx.icon("chevron-down", size=14),
                 aria_label="Network menu",
                 variant="ghost",
@@ -166,12 +166,12 @@ def network_menu() -> rx.Component:
     )
 
 
-def canvas_menu() -> rx.Component:
+def sld_menu() -> rx.Component:
     """Render the top-level canvas menu."""
     return rx.menu.root(
         rx.menu.trigger(
             rx.button(
-                "Canvas",
+                "SLD",
                 rx.icon("chevron-down", size=14),
                 aria_label="Canvas menu",
                 variant="ghost",
@@ -276,13 +276,13 @@ def view_menu() -> rx.Component:
     )
 
 
-def data_menu() -> rx.Component:
+def network_data_menu() -> rx.Component:
     """Render the top-level data menu."""
     return rx.hstack(
         rx.menu.root(
             rx.menu.trigger(
                 rx.button(
-                    "Data",
+                    "Network Data",
                     rx.icon("chevron-down", size=14),
                     aria_label="Data menu",
                     variant="ghost",
@@ -401,10 +401,10 @@ def shortcut_actions() -> rx.Component:
 def menu_bar() -> rx.Component:
     """Render the compact application menu bar."""
     return rx.hstack(
-        network_menu(),
-        canvas_menu(),
-        view_menu(),
-        data_menu(),
+        file_menu(),
+        sld_menu(),
+        # view_menu(),
+        network_data_menu(),
         shortcut_actions(),
         rx.spacer(),
         rx.text(State.network_name, size="2", color="#f8fafc"),

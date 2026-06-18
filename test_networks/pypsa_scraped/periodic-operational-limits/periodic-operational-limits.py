@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import xarray as xr
 
+
 # %%
 def get_p_monthly(network: pypsa.Network, output_mw: float) -> pd.Series:
     """Define a monthly output limit for dispatch, set for the first snapshot of each month."""
@@ -44,6 +45,7 @@ monthly_bounds = (
 )
 display(monthly_bounds)
 
+
 # %%
 def get_grouper(limit_attr: xr.DataArray) -> xr.DataArray:
     """Return a grouper for snapshots in the same period based on the NaN values between each non-NaN value in the limit attribute."""
@@ -72,6 +74,7 @@ def period_ccgt_output_constraints(n: pypsa.Network, sns: pd.Index) -> None:
             lhs=p_period, sign=sign, rhs=p_lim_period, name=f"CCGT-period-{limit}"
         )
 
+
 # %%
 # --- Baseline: no custom constraints ---
 n_base = n.copy()
@@ -90,6 +93,7 @@ print("Constrained solve completed")
 # %%
 display(n_constrained.model.constraints["CCGT-period-min"])
 display(n_constrained.model.constraints["CCGT-period-max"])
+
 
 # %%
 def periodic_energy_balance(

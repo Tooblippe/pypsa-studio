@@ -26,7 +26,7 @@ n.add(
     cyclic_delay=True,
 )
 
-n.optimize();
+n.optimize()
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
@@ -47,7 +47,7 @@ plt.tight_layout()
 # %%
 n.links.loc["pipeline", "cyclic_delay"] = False
 
-n.optimize();
+n.optimize()
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
@@ -88,7 +88,7 @@ n.add(
     cyclic_delay2=True,
 )
 
-n.optimize();
+n.optimize()
 
 # %%
 fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
@@ -126,7 +126,7 @@ n.add(
     cyclic_delay=True,
 )
 
-n.optimize();
+n.optimize()
 
 # %%
 pd.DataFrame(
@@ -162,7 +162,7 @@ n.snapshot_weightings.loc[:, "generators"] = 4
 
 n.links.loc["pipeline", "delay"] = 3
 
-n.optimize();
+n.optimize()
 
 # %%
 src, _ = Links.get_delay_source_indexer(
@@ -195,7 +195,7 @@ plt.tight_layout()
 # %%
 n.links.loc["pipeline", "delay"] = 5
 
-n.optimize();
+n.optimize()
 
 # %%
 src, _ = Links.get_delay_source_indexer(

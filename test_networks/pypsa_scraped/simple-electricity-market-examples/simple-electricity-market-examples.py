@@ -43,7 +43,7 @@ for tech in power_plant_p_nom[country]:
     )
 
 
-n.add("Load", f"{country} load", bus=country, p_set=loads[country]);
+n.add("Load", f"{country} load", bus=country, p_set=loads[country])
 
 # %%
 n.optimize()
@@ -194,7 +194,7 @@ n.add(
     p_min_pu=-1,
     p_nom=8000,
     marginal_cost=70,
-);
+)
 
 # %%
 n.optimize()
@@ -234,7 +234,7 @@ n.add(
     f"{country} load",
     bus=country,
     p_set=loads[country] + np.array([0, 1000, 3000, 4000]),
-);
+)
 
 # %%
 n.optimize()

@@ -23,7 +23,7 @@ charger_p_max_pu["2016-01-01 09:00":"2016-01-01 16:00"] = 1
 
 # %%
 df = pd.concat({"BEV": bev_usage, "PV": pv_pu, "Charger": charger_p_max_pu}, axis=1)
-df.plot.area(subplots=True);
+df.plot.area(subplots=True)
 
 # %%
 n = pypsa.Network()
@@ -54,7 +54,7 @@ n.add(
     efficiency=0.9,
 )
 
-n.add("Store", "battery", bus="car battery", e_cyclic=True, e_nom=100);
+n.add("Store", "battery", bus="car battery", e_cyclic=True, e_nom=100)
 
 # %%
 n.optimize()

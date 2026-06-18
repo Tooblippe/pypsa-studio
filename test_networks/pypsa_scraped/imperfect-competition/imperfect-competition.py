@@ -14,6 +14,7 @@ GAS_PLANT_CAPACITY = 8.0  # [MW] gas backup plant capacity
 GAS_PRODUCER_CAPACITY = 5.0  # [MW] each gas producer's capacity
 DEMAND_MAX = 10.0  # [MW] maximum demand quantity
 
+
 # %%
 def create_network():
     """Create the two-bus electricity + gas network.
@@ -82,6 +83,7 @@ def create_network():
 
     return n
 
+
 # %%
 # Create the network
 n = create_network()
@@ -130,6 +132,7 @@ print("  Problem B: Cournot-Nash Competition (cv = 1)")
 print(f"{'=' * 60}")
 print(f"  Status: {status_b} | {cond_b}")
 print(f"  Objective: {n_b.objective:.2f}")
+
 
 # %%
 def production_cost(q):

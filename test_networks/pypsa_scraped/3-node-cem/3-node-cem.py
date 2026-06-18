@@ -15,7 +15,7 @@ n = pypsa.Network()
 REGIONS = pd.Index(["VIC", "SA", "NSW"])
 LAT = [-37.81, -34.93, -33.87]
 LON = [145.01, 138.63, 151.20]
-n.add("Bus", REGIONS, x=LON, y=LAT);
+n.add("Bus", REGIONS, x=LON, y=LAT)
 
 # %%
 CARRIERS = {
@@ -39,7 +39,7 @@ n.add(
     "Carrier",
     CARRIERS.keys(),
     color=CARRIERS.values(),
-);
+)
 
 # %%
 url = "https://tubcloud.tu-berlin.de/s/oPQbAebrciFBZP2/download/australia-example-p_max_pu.csv"
@@ -53,7 +53,7 @@ display(p_set.head(3))
 n.set_snapshots(p_max_pu.index)
 
 # %%
-n.add("Load", REGIONS, suffix=" load", bus=REGIONS, p_set=p_set, carrier="load");
+n.add("Load", REGIONS, suffix=" load", bus=REGIONS, p_set=p_set, carrier="load")
 
 # %%
 p_max_pu_wind = p_max_pu.xs("onwind", level=1, axis=1).rename(
@@ -83,7 +83,7 @@ n.add(
     p_nom_extendable=True,
     capital_cost=annuity(0.05, 30) * 700_000,
     carrier="solar",
-);
+)
 
 # %%
 n.add(
@@ -94,7 +94,7 @@ n.add(
     p_nom=p_set.max(),
     marginal_cost=3000,
     carrier="load shedding",
-);
+)
 
 # %%
 n.set_snapshots(n.snapshots[::RESOLUTION])
@@ -208,7 +208,8 @@ n.add(
     capital_cost=annuity(0.05, 25) * 250_000,
     e_nom_extendable=True,
     e_cyclic=True,
-);
+)
+
 
 # %%
 def battery_constraint(n: pypsa.Network, sns: pd.Index) -> None:
@@ -245,7 +246,7 @@ bus_size = (
     .loc[REGIONS]
 )
 
-n.plot(bus_size=bus_size / 4e7, margin=0.75, bus_split_circle=True);
+n.plot(bus_size=bus_size / 4e7, margin=0.75, bus_split_circle=True)
 
 # %%
 pdc = (

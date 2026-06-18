@@ -46,7 +46,7 @@ obj
 # %%
 n.buses_t.marginal_price["electricity"].resample("D").mean().plot(
     figsize=(6, 2), ylabel="€/MWh", xlabel=""
-);
+)
 
 # %%
 pdc = (
@@ -54,15 +54,15 @@ pdc = (
     .sort_values(ascending=False)
     .reset_index(drop=True)
 )
-pdc.plot(figsize=(5, 3), ylabel="€/MWh", xlabel="snapshots", xlim=(0, 8760 / 3));
+pdc.plot(figsize=(5, 3), ylabel="€/MWh", xlabel="snapshots", xlim=(0, 8760 / 3))
 
 # %%
 msv = n.buses_t.marginal_price["hydrogen"]
-msv.plot(figsize=(6, 2), ylim=(0, 100), ylabel="€/MWh", xlabel="");
+msv.plot(figsize=(6, 2), ylim=(0, 100), ylabel="€/MWh", xlabel="")
 
 # %%
 soc = n.stores_t.e.div(1e3).squeeze()
-soc.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False);
+soc.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False)
 
 # %%
 n.model.solver_model = None
@@ -85,11 +85,11 @@ pdc2 = (
     .sort_values(ascending=False)
     .reset_index(drop=True)
 )
-pdc2.plot(figsize=(5, 3), ylabel="€/MWh", xlabel="snapshots", xlim=(0, 8760 / 3));
+pdc2.plot(figsize=(5, 3), ylabel="€/MWh", xlabel="snapshots", xlim=(0, 8760 / 3))
 
 # %%
 soc2 = n2.stores_t.e.div(1e3).squeeze()
-soc2.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False);
+soc2.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False)
 
 # %%
 n3 = n.copy()
@@ -113,11 +113,11 @@ pdc3 = (
     .sort_values(ascending=False)
     .reset_index(drop=True)
 )
-pdc3.plot(figsize=(5, 3), ylabel="€/MWh", xlabel="snapshots", xlim=(0, 8760 / 3));
+pdc3.plot(figsize=(5, 3), ylabel="€/MWh", xlabel="snapshots", xlim=(0, 8760 / 3))
 
 # %%
 soc3 = n3.stores_t.e.div(1e3).squeeze()
-soc3.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False);
+soc3.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False)
 
 # %%
 n4 = n.copy()
@@ -143,7 +143,7 @@ pdc4 = (
 
 # %%
 soc4 = n4.stores_t.e.div(1e3).squeeze()
-soc4.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False);
+soc4.plot(figsize=(6, 2), ylabel="GWh", xlabel="", legend=False)
 
 # %%
 pd.Series(
