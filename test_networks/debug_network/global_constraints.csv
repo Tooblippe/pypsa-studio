@@ -1,3 +1,0 @@
-name,type,bus,carrier_attribute,sense
-global_constraint_1,primary_energy,buse_9,co2_emissions,==
-global_constraint_2,primary_energy,buse_10,co2_emissions,==

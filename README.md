@@ -28,7 +28,7 @@ The dynamic PyPSA component model lives in
 `pypsa_network_builder_v2/network_model/pypsa_components.py`.
 
 ```python
-from pypsa_network_builder_v2.network_model import (
+from pypsa_studio.network_model import (
     build_network_model,
     create_component_param_models,
     load_pypsa_loaded_network,
