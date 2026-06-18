@@ -793,6 +793,15 @@ def demo_styles() -> rx.Component:
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge-textwrapper {
             pointer-events: none;
           }
+          .schematic-symbol-layer {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            transform-origin: center;
+            transition: transform 120ms ease;
+          }
           .schematic-node-symbol {
             display: block;
             width: 100%;

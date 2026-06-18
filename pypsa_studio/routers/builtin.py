@@ -65,9 +65,14 @@ class GridRouter(RouterBase):
             row = offset_index // 3
             column = offset_index % 3
             x_offset = (column - 1) * 88.0
+            bus_side = _node_bus_side(node)
 
             if lane == "top":
                 x_offset = 70.0 + column * 64.0
+                if bus_side == "left":
+                    x_offset = -150.0 - column * 64.0
+                elif bus_side == "right":
+                    x_offset = 70.0 + column * 64.0
                 node["position"] = {
                     "x": bus_position["x"] + x_offset,
                     "y": bus_position["y"] - 120.0 - row * 72.0,
@@ -77,14 +82,22 @@ class GridRouter(RouterBase):
             if lane == "bottom":
                 if component_name == "loads":
                     x_offset = 70.0 + column * 64.0
+                if bus_side == "left":
+                    x_offset = -150.0 - column * 64.0
+                elif bus_side == "right":
+                    x_offset = 70.0 + column * 64.0
                 node["position"] = {
                     "x": bus_position["x"] + x_offset,
                     "y": bus_position["y"] + 120.0 + row * 72.0,
                 }
                 continue
 
+            if bus_side == "left":
+                x_position = bus_position["x"] - 150.0
+            else:
+                x_position = bus_position["x"] + 150.0
             node["position"] = {
-                "x": bus_position["x"] + 150.0,
+                "x": x_position,
                 "y": bus_position["y"] + x_offset,
             }
 
@@ -107,6 +120,7 @@ def _diagram_model_from_nodes_and_edges(
                 "component": node.get("component"),
                 "pypsa_name": node.get("pypsa_name"),
                 "position": node.get("position"),
+                "layout": node.get("layout", {}),
                 "attrs": node.get("attrs", {}),
                 "hidden": node.get("hidden", False),
             }
@@ -128,3 +142,12 @@ def _diagram_model_from_nodes_and_edges(
             for edge in edges
         ],
     }
+
+
+def _node_bus_side(node: dict[str, Any]) -> str:
+    """Return the saved bus side for a routed component node."""
+    layout = node.get("layout", {})
+    if not isinstance(layout, dict):
+        return ""
+    bus_side = str(layout.get("bus_side", "")).strip().lower()
+    return bus_side if bus_side in {"left", "right"} else ""

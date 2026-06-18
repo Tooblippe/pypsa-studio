@@ -41,6 +41,7 @@ class DiagramNode(TypedDict):
     icon_src: str
     icon_svg: str
     position: dict[str, float]
+    layout: dict[str, object]
     attrs: dict[str, object]
     attr_rows: list[DiagramAttr]
     hidden: bool

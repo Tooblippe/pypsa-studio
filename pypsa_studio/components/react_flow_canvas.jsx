@@ -171,6 +171,23 @@ function safeHandleId(value) {
   return String(value || "edge").replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
+function layoutBusSide(node) {
+  const side = String(node?.layout?.bus_side || node?.data?.layout?.bus_side || "").toLowerCase();
+  return side === "left" || side === "right" ? side : "";
+}
+
+function defaultIconSideForComponent(component) {
+  const kind = componentToBuilderKind(component);
+  if (kind === "generator") return "left";
+  if (kind === "load" || kind === "store" || kind === "storage_unit") return "right";
+  return "";
+}
+
+function shouldRotateIconForBusSide(component, busSide) {
+  const defaultSide = defaultIconSideForComponent(component);
+  return Boolean(defaultSide && busSide && defaultSide !== busSide);
+}
+
 function nodeCenter(node) {
   if (!node) return null;
   const meta = symbolMetaForComponent(node.component);
@@ -192,17 +209,106 @@ function sideForBusConnection(busNode, otherNode, fallbackHandle) {
   return String(fallbackHandle || "").startsWith("left") ? "left" : "right";
 }
 
+function oppositeSide(side) {
+  return side === "left" ? "right" : "left";
+}
+
+function handleForSide(handleId, side) {
+  const handleType = String(handleId || "").endsWith("-target") ? "target" : "source";
+  return `${side}-${handleType}`;
+}
+
+function busNameForNode(node) {
+  return String(node?.attrs?.name || node?.data?.attrs?.name || node?.id || "");
+}
+
+function attachedBusNodeForNode(node, nodes) {
+  const busName = String(node?.attrs?.bus || node?.data?.attrs?.bus || "");
+  if (!busName) return null;
+  return (nodes || []).find(
+    (candidate) => candidate.component === "buses" && busNameForNode(candidate) === busName,
+  ) || null;
+}
+
+function sideForAttachedNode(node, nodes, fallbackSide = "") {
+  const busNode = attachedBusNodeForNode(node, nodes);
+  if (!busNode) return "";
+  return sideForBusConnection(busNode, node, fallbackSide);
+}
+
+function applyBusSideConstraintsToLayout(layoutChildren, nodes) {
+  const proposedPositionsById = new Map(
+    (layoutChildren || []).map((node) => [
+      node.id,
+      {
+        x: Number(node.x || 0),
+        y: Number(node.y || 0),
+      },
+    ]),
+  );
+  const proposedNodes = (nodes || []).map((node) => ({
+    ...node,
+    position: proposedPositionsById.get(node.id) || node.position,
+  }));
+
+  return (layoutChildren || []).map((layoutNode) => {
+    const sourceNode = (nodes || []).find((node) => node.id === layoutNode.id);
+    if (!sourceNode || sourceNode.component === "buses") return layoutNode;
+
+    const busNode = attachedBusNodeForNode(sourceNode, proposedNodes);
+    if (!busNode) return layoutNode;
+
+    const busSide = layoutBusSide(sourceNode) || sideForAttachedNode(sourceNode, nodes);
+    if (!busSide) return layoutNode;
+
+    const proposedPosition = proposedPositionsById.get(layoutNode.id) || {
+      x: Number(layoutNode.x || 0),
+      y: Number(layoutNode.y || 0),
+    };
+    const proposedNode = {
+      ...sourceNode,
+      position: proposedPosition,
+    };
+    const busCenter = nodeCenter(busNode);
+    const proposedCenter = nodeCenter(proposedNode);
+    if (!busCenter || !proposedCenter) return layoutNode;
+    const violatesSide =
+      busSide === "left"
+        ? proposedCenter.x >= busCenter.x
+        : proposedCenter.x <= busCenter.x;
+    if (!violatesSide) return layoutNode;
+
+    return {
+      ...layoutNode,
+      x: Number(busNode.position?.x || 0) + (busSide === "left" ? -150 : 150),
+    };
+  });
+}
+
 function buildBusConnectionRouting(nodes, edges) {
   const nodeById = new Map((nodes || []).map((node) => [node.id, node]));
   const handlesByBusId = {};
   const handleGroups = new Map();
+
+  const handleForNonBusEndpoint = (edge, endpoint) => {
+    const nodeId = endpoint === "source" ? edge.source : edge.target;
+    const otherNodeId = endpoint === "source" ? edge.target : edge.source;
+    const node = nodeById.get(nodeId);
+    const otherNode = nodeById.get(otherNodeId);
+    const fallbackHandle = endpoint === "source" ? edge.sourceHandle : edge.targetHandle;
+    if (!node || !otherNode || otherNode.component !== "buses") {
+      return fallbackHandle;
+    }
+    const busSide = sideForBusConnection(otherNode, node, fallbackHandle);
+    return handleForSide(fallbackHandle, oppositeSide(busSide));
+  };
 
   const registerBusHandle = (edge, endpoint) => {
     const busNodeId = endpoint === "source" ? edge.source : edge.target;
     const otherNodeId = endpoint === "source" ? edge.target : edge.source;
     const busNode = nodeById.get(busNodeId);
     if (busNode?.component !== "buses") {
-      return endpoint === "source" ? edge.sourceHandle : edge.targetHandle;
+      return handleForNonBusEndpoint(edge, endpoint);
     }
 
     const otherNode = nodeById.get(otherNodeId);
@@ -407,7 +513,29 @@ function SchematicNode({ data, selected }) {
     : { top: `${iconHandleTop}px`, left: rightContact, right: "auto", transform: "translate(-50%, -50%)" };
   const showConnectorTerminals = !data.isBus && hasConnectorTerminal(data.component);
   const connectorSides = connectorTerminalSides(data.component);
-  const symbolStyle = { width: `${symbolMeta.width}px`, height: `${symbolHeight}px` };
+  const symbolStyle = { width: "100%", height: "100%" };
+  const shouldRotateSymbol = shouldRotateIconForBusSide(data.component, data.busSide);
+  const symbolLayerStyle = {
+    width: `${symbolMeta.width}px`,
+    height: `${symbolHeight}px`,
+    transform: shouldRotateSymbol ? "rotate(180deg)" : "none",
+  };
+  const terminalElements = showConnectorTerminals ? (
+    <>
+      {connectorSides.includes("left") ? (
+        <span
+          className="schematic-terminal schematic-terminal-left"
+          style={connectorTerminalStyleForComponent(data.component, "left", iconHandleTop)}
+        />
+      ) : null}
+      {connectorSides.includes("right") ? (
+        <span
+          className="schematic-terminal schematic-terminal-right"
+          style={connectorTerminalStyleForComponent(data.component, "right", iconHandleTop)}
+        />
+      ) : null}
+    </>
+  ) : null;
 
   return (
     <div
@@ -423,22 +551,6 @@ function SchematicNode({ data, selected }) {
       <Handle className="schematic-node-handle" id="left-source" type="source" position={Position.Left} style={leftHandleStyle} />
       <Handle className="schematic-node-handle" id="right-target" type="target" position={Position.Right} style={rightHandleStyle} />
       <Handle className="schematic-node-handle" id="right-source" type="source" position={Position.Right} style={rightHandleStyle} />
-      {showConnectorTerminals ? (
-        <>
-          {connectorSides.includes("left") ? (
-            <span
-              className="schematic-terminal schematic-terminal-left"
-              style={connectorTerminalStyleForComponent(data.component, "left", iconHandleTop)}
-            />
-          ) : null}
-          {connectorSides.includes("right") ? (
-            <span
-              className="schematic-terminal schematic-terminal-right"
-              style={connectorTerminalStyleForComponent(data.component, "right", iconHandleTop)}
-            />
-          ) : null}
-        </>
-      ) : null}
       {(data.connectionHandles || []).map((handle) => (
         <Handle
           className="schematic-node-handle schematic-node-bus-handle"
@@ -459,13 +571,19 @@ function SchematicNode({ data, selected }) {
           style={{ height: `${busSymbolHeight}px` }}
         />
       ) : data.iconSvg ? (
-        <span
-          className="schematic-node-symbol"
-          style={symbolStyle}
-          dangerouslySetInnerHTML={{ __html: data.iconSvg }}
-        />
+        <span className="schematic-symbol-layer" style={symbolLayerStyle}>
+          {terminalElements}
+          <span
+            className="schematic-node-symbol"
+            style={symbolStyle}
+            dangerouslySetInnerHTML={{ __html: data.iconSvg }}
+          />
+        </span>
       ) : (
-        <img className="schematic-node-symbol" src={data.iconSrc} alt="" style={symbolStyle} />
+        <span className="schematic-symbol-layer" style={symbolLayerStyle}>
+          {terminalElements}
+          <img className="schematic-node-symbol" src={data.iconSrc} alt="" style={symbolStyle} />
+        </span>
       )}
       <span className="schematic-node-label">{data.label}</span>
     </div>
@@ -495,6 +613,10 @@ function CanvasInner({
   const lastHandledFitViewVersionRef = useRefReactFlowCanvas(0);
   const [hoverBusId, setHoverBusId] = useStateReactFlowCanvas("");
   const [dragComponent, setDragComponent] = useStateReactFlowCanvas("");
+  const [dragBusSidePreview, setDragBusSidePreview] = useStateReactFlowCanvas({
+    nodeId: "",
+    side: "",
+  });
   const reactFlow = useReactFlow();
 
   const isConnectionDrag = Boolean(
@@ -535,6 +657,11 @@ function CanvasInner({
             label,
             component: node.component,
             attrs: node.attrs || {},
+            layout: node.layout || {},
+            busSide:
+              dragBusSidePreview.nodeId === node.id
+                ? dragBusSidePreview.side
+                : layoutBusSide(node),
             isBus: node.component === "buses",
             branchArmed: Boolean(armedBranchComponent),
             connectionDrag: isConnectionDrag,
@@ -556,6 +683,7 @@ function CanvasInner({
       edgeRouting.handlesByBusId,
       hoverBusId,
       isConnectionDrag,
+      dragBusSidePreview,
       nodes,
       onBranchBusClick,
       onNodeSelect,
@@ -614,8 +742,9 @@ function CanvasInner({
 
       if (cancelled || !Array.isArray(layout.children)) return;
 
+      const constrainedChildren = applyBusSideConstraintsToLayout(layout.children, nodes);
       onNodesUpdate?.(
-        layout.children.map((node) => ({
+        constrainedChildren.map((node) => ({
           id: node.id,
           position: {
             x: Number(node.x || 0),
@@ -636,7 +765,7 @@ function CanvasInner({
     return () => {
       cancelled = true;
     };
-  }, [flowEdges, flowNodes, onNodesUpdate, onRouteComplete, reactFlow, routeVersion]);
+  }, [flowEdges, flowNodes, nodes, onNodesUpdate, onRouteComplete, reactFlow, routeVersion]);
 
   const flowPositionFromEvent = useCallbackReactFlowCanvas(
     (event) => {
@@ -849,12 +978,41 @@ function CanvasInner({
     (_, node) => {
       const hasBusAttr = Object.prototype.hasOwnProperty.call(node?.data?.attrs || {}, "bus");
       const isConnected = Boolean(node?.data?.attrs?.bus);
-      if (!hasBusAttr || isConnected || node?.data?.isBus) {
+      if (!hasBusAttr || node?.data?.isBus) {
         setHoverBusId("");
+        setDragBusSidePreview({ nodeId: "", side: "" });
         return;
       }
       const width = Number.parseFloat(node.style?.width) || 56;
       const height = Number.parseFloat(node.style?.height) || 56;
+      const sourceNode = nodes.find((candidate) => candidate.id === node.id);
+      const positionedNode = {
+        ...(sourceNode || {}),
+        id: node.id,
+        component: sourceNode?.component || node?.data?.component || "",
+        attrs: sourceNode?.attrs || node?.data?.attrs || {},
+        layout: sourceNode?.layout || node?.data?.layout || {},
+        position: node.position,
+      };
+
+      if (isConnected) {
+        const targetBusNode = attachedBusNodeForNode(positionedNode, nodes);
+        const busSide = targetBusNode
+          ? sideForBusConnection(
+              targetBusNode,
+              positionedNode,
+              layoutBusSide(positionedNode),
+            )
+          : "";
+        setHoverBusId("");
+        setDragBusSidePreview((current) =>
+          current.nodeId === node.id && current.side === busSide
+            ? current
+            : { nodeId: node.id, side: busSide },
+        );
+        return;
+      }
+
       setHoverBusId(
         busIdAtFlowPoint(
           node.position.x + width / 2,
@@ -862,8 +1020,9 @@ function CanvasInner({
           node.id,
         ),
       );
+      setDragBusSidePreview({ nodeId: "", side: "" });
     },
-    [busIdAtFlowPoint],
+    [busIdAtFlowPoint, nodes],
   );
 
   const handleNodeDragStop = useCallbackReactFlowCanvas(
@@ -872,6 +1031,15 @@ function CanvasInner({
       const isConnected = Boolean(node?.data?.attrs?.bus);
       const width = Number.parseFloat(node.style?.width) || 56;
       const height = Number.parseFloat(node.style?.height) || 56;
+      const sourceNode = nodes.find((candidate) => candidate.id === node.id);
+      const positionedNode = {
+        ...(sourceNode || {}),
+        id: node.id,
+        component: sourceNode?.component || node?.data?.component || "",
+        attrs: sourceNode?.attrs || node?.data?.attrs || {},
+        layout: sourceNode?.layout || node?.data?.layout || {},
+        position: node.position,
+      };
       const busNodeId =
         hasBusAttr && !isConnected && !node?.data?.isBus
           ? busIdAtFlowPoint(
@@ -880,16 +1048,37 @@ function CanvasInner({
               node.id,
             )
           : "";
+      const targetBusNode = busNodeId
+        ? nodes.find((candidate) => candidate.id === busNodeId)
+        : attachedBusNodeForNode(positionedNode, nodes);
+      const busSide = targetBusNode
+        ? sideForBusConnection(
+            targetBusNode,
+            positionedNode,
+            layoutBusSide(positionedNode),
+          )
+        : "";
+      const update = {
+        id: node.id,
+        position: node.position,
+        bus_node_id: busNodeId,
+      };
+      if (busSide) {
+        update.layout = {
+          ...(positionedNode.layout || {}),
+          bus_side: busSide,
+        };
+        setDragBusSidePreview({ nodeId: node.id, side: busSide });
+      }
       setHoverBusId("");
-      onNodesUpdate?.([
-        {
-          id: node.id,
-          position: node.position,
-          bus_node_id: busNodeId,
-        },
-      ]);
+      onNodesUpdate?.([update]);
+      window.setTimeout(() => {
+        setDragBusSidePreview((current) =>
+          current.nodeId === node.id ? { nodeId: "", side: "" } : current,
+        );
+      }, 200);
     },
-    [busIdAtFlowPoint, onNodesUpdate],
+    [busIdAtFlowPoint, nodes, onNodesUpdate],
   );
 
   return (

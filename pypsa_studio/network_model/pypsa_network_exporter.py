@@ -204,19 +204,23 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
             y = float(position.get("y", 0))
         except TypeError, ValueError:
             continue
-        positions.append(
-            {
-                "component": str(component.get("component", "")),
-                "id": str(component.get("id", "")),
-                "name": str(attrs.get("name") or component.get("id", "")),
-                "x": x,
-                "y": y,
-            }
-        )
+        position_entry = {
+            "component": str(component.get("component", "")),
+            "id": str(component.get("id", "")),
+            "name": str(attrs.get("name") or component.get("id", "")),
+            "x": x,
+            "y": y,
+        }
+        layout = component.get("layout", {})
+        if isinstance(layout, dict):
+            bus_side = str(layout.get("bus_side", "")).strip().lower()
+            if bus_side in {"left", "right"}:
+                position_entry["bus_side"] = bus_side
+        positions.append(position_entry)
 
     target_folder.mkdir(parents=True, exist_ok=True)
     (target_folder / LAYOUT_FILE_NAME).write_text(
-        json.dumps({"version": 1, "positions": positions}, indent=2),
+        json.dumps({"version": 2, "positions": positions}, indent=2),
         encoding="utf-8",
     )
 

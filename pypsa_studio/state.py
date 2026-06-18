@@ -811,8 +811,8 @@ def load_network_artifacts(network_path: str | Path) -> NetworkLoadArtifacts:
 
 def load_layout_positions(
     csv_folder: Path,
-) -> dict[tuple[str, str], dict[str, float]]:
-    """Load saved builder canvas positions keyed by component and PyPSA name."""
+) -> dict[tuple[str, str], dict[str, object]]:
+    """Load saved builder canvas layout keyed by component and PyPSA name."""
     layout_path = csv_folder / LAYOUT_FILE_NAME
     if not layout_path.exists():
         return {}
@@ -821,7 +821,7 @@ def load_layout_positions(
     except OSError, json.JSONDecodeError:
         return {}
 
-    positions: dict[tuple[str, str], dict[str, float]] = {}
+    positions: dict[tuple[str, str], dict[str, object]] = {}
     entries = payload.get("positions", []) if isinstance(payload, dict) else []
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
@@ -831,20 +831,24 @@ def load_layout_positions(
         if not component_name or not pypsa_name:
             continue
         try:
-            positions[(component_name, pypsa_name)] = {
+            layout_entry: dict[str, object] = {
                 "x": float(entry.get("x", 0)),
                 "y": float(entry.get("y", 0)),
             }
         except TypeError, ValueError:
             continue
+        bus_side = normalize_bus_side(entry.get("bus_side"))
+        if bus_side:
+            layout_entry["bus_side"] = bus_side
+        positions[(component_name, pypsa_name)] = layout_entry
     return positions
 
 
 def apply_layout_positions(
     diagram_nodes: list[DiagramNode],
-    layout_positions: dict[tuple[str, str], dict[str, float]],
+    layout_positions: dict[tuple[str, str], dict[str, object]],
 ) -> None:
-    """Apply saved builder positions to imported diagram nodes in place."""
+    """Apply saved builder layout metadata to imported diagram nodes in place."""
     if not layout_positions:
         return
     for node in diagram_nodes:
@@ -856,7 +860,14 @@ def apply_layout_positions(
         )
         position = layout_positions.get((node["component"], pypsa_name))
         if position is not None:
-            node["position"] = {"x": position["x"], "y": position["y"]}
+            node["position"] = {
+                "x": float(position["x"]),
+                "y": float(position["y"]),
+            }
+            bus_side = normalize_bus_side(position.get("bus_side"))
+            if bus_side:
+                node.setdefault("layout", {})["bus_side"] = bus_side
+    apply_bus_side_layout_from_positions(diagram_nodes)
 
 
 def diagram_attr_rows(
@@ -1037,6 +1048,7 @@ def make_diagram_node(
     component = NETWORK_MODEL.component(component_name)
     attrs = component_defaults(component)
     row = component_to_row(component)
+    bus_side = default_bus_side_for_component(component_name)
     return {
         "id": node_id,
         "component": component.component,
@@ -1044,6 +1056,7 @@ def make_diagram_node(
         "icon_src": row["icon_src"],
         "icon_svg": row["icon_svg"],
         "position": {"x": x, "y": y},
+        "layout": {"bus_side": bus_side} if bus_side else {},
         "attrs": attrs,
         "attr_rows": diagram_attr_rows(component, attrs),
         "hidden": False,
@@ -1116,6 +1129,42 @@ def component_id_prefix(component_name: str) -> str:
     return component_name[:-1] if component_name.endswith("s") else component_name
 
 
+def normalize_bus_side(value: object) -> str:
+    """Return a valid bus side value or an empty string."""
+    side = str(value or "").strip().lower()
+    return side if side in {"left", "right"} else ""
+
+
+def default_bus_side_for_component(component_name: str) -> str:
+    """Return the default visual bus side for a bus-attached component."""
+    if component_name == "generators":
+        return "left"
+    if component_name in {"loads", "stores", "storage_units"}:
+        return "right"
+    return ""
+
+
+def apply_bus_side_layout_from_positions(diagram_nodes: list[DiagramNode]) -> None:
+    """Infer bus-side layout metadata from current node positions."""
+    bus_nodes_by_name: dict[str, DiagramNode] = {
+        str(node["attrs"].get("name") or node["id"]): node
+        for node in diagram_nodes
+        if node["component"] == "buses"
+    }
+    for node in diagram_nodes:
+        attrs = node.get("attrs", {})
+        if node["component"] == "buses" or not isinstance(attrs, dict):
+            continue
+        bus_node = bus_nodes_by_name.get(str(attrs.get("bus", "")))
+        if bus_node is None:
+            continue
+        node_x = float(node["position"].get("x", 0))
+        bus_x = float(bus_node["position"].get("x", 0))
+        node.setdefault("layout", {})["bus_side"] = (
+            "left" if node_x < bus_x else "right"
+        )
+
+
 def next_import_node_id(counters: dict[str, int], component_name: str) -> str:
     """Allocate the next stable imported node id for a component type."""
     next_count = counters.get(component_name, 0) + 1
@@ -1163,6 +1212,7 @@ def diagram_node_from_imported_attrs(
     """Create a diagram node from imported PyPSA attributes."""
     node_id = next_import_node_id(counters, component_type.component)
     row_component = component_to_row(component_type)
+    bus_side = default_bus_side_for_component(component_type.component)
     return {
         "id": node_id,
         "component": component_type.component,
@@ -1170,6 +1220,7 @@ def diagram_node_from_imported_attrs(
         "icon_src": row_component["icon_src"],
         "icon_svg": row_component["icon_svg"],
         "position": {"x": float(x), "y": float(y)},
+        "layout": {"bus_side": bus_side} if bus_side else {},
         "attrs": attrs,
         "attr_rows": diagram_attr_rows(component_type, attrs),
         "hidden": hidden,
@@ -3201,6 +3252,9 @@ class State(rx.State):
             routed_attrs = routed_node.get("attrs")
             if isinstance(routed_attrs, dict):
                 current_node["attrs"] = copy.deepcopy(routed_attrs)
+            routed_layout = routed_node.get("layout")
+            if isinstance(routed_layout, dict):
+                current_node["layout"] = copy.deepcopy(routed_layout)
             if isinstance(routed_node.get("hidden"), bool):
                 current_node["hidden"] = bool(routed_node["hidden"])
 
@@ -3235,6 +3289,7 @@ class State(rx.State):
         self.export_error = ""
         yield
 
+        self._refresh_bus_side_layout()
         if selected_router_name == JS_ELK_ROUTER_NAME:
             self.route_version += 1
             yield
@@ -3247,6 +3302,7 @@ class State(rx.State):
                 selected_router_name,
                 router_network,
             )
+            self._apply_bus_side_constraints_to_router_network(routed_network)
             self._push_canvas_history()
             self._apply_routed_network(routed_network)
             self._request_canvas_fit_view()
@@ -3677,11 +3733,13 @@ class State(rx.State):
                             "x": bus_position["x"] - 120,
                             "y": bus_position["y"] + 8,
                         }
+                        node.setdefault("layout", {})["bus_side"] = "left"
                     else:
                         node["position"] = {
                             "x": bus_position["x"] + 120,
                             "y": bus_position["y"] + 8,
                         }
+                        node.setdefault("layout", {})["bus_side"] = "right"
                 component = NETWORK_MODEL.component(component_name)
                 node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
         self.diagram_nodes.append(node)
@@ -3724,6 +3782,130 @@ class State(rx.State):
             if node["id"] == node_id:
                 return node["position"]
         return None
+
+    def _bus_nodes_by_name(
+        self,
+        nodes: list[dict[str, object]] | None = None,
+    ) -> dict[str, dict[str, object]]:
+        """Return bus nodes keyed by their displayed PyPSA bus name."""
+        source_nodes = nodes if nodes is not None else self.diagram_nodes
+        bus_nodes: dict[str, dict[str, object]] = {}
+        for node in source_nodes:
+            if str(node.get("component", "")) != "buses":
+                continue
+            attrs = node.get("attrs", {})
+            bus_name = (
+                str(attrs.get("name") or node.get("id", ""))
+                if isinstance(attrs, dict)
+                else str(node.get("id", ""))
+            )
+            if bus_name:
+                bus_nodes[bus_name] = node
+        return bus_nodes
+
+    def _bus_side_for_node_position(
+        self,
+        node: dict[str, object],
+        bus_node: dict[str, object],
+    ) -> str:
+        """Return the side of a bus occupied by a component node."""
+        node_position = node.get("position", {})
+        bus_position = bus_node.get("position", {})
+        if not isinstance(node_position, dict) or not isinstance(bus_position, dict):
+            return ""
+        try:
+            return (
+                "left"
+                if float(node_position.get("x", 0)) < float(bus_position.get("x", 0))
+                else "right"
+            )
+        except TypeError, ValueError:
+            return ""
+
+    def _refresh_bus_side_layout(self) -> None:
+        """Refresh bus-side layout metadata from current component positions."""
+        bus_nodes_by_name = self._bus_nodes_by_name()
+        changed = False
+        for node in self.diagram_nodes:
+            attrs = node.get("attrs", {})
+            if node["component"] == "buses" or not isinstance(attrs, dict):
+                continue
+            bus_name = str(attrs.get("bus", ""))
+            bus_node = bus_nodes_by_name.get(bus_name)
+            if bus_node is None:
+                continue
+            bus_side = self._bus_side_for_node_position(node, bus_node)
+            if not bus_side:
+                continue
+            layout = node.setdefault("layout", {})
+            if layout.get("bus_side") != bus_side:
+                layout["bus_side"] = bus_side
+                changed = True
+        if changed:
+            self._sync_diagram_model()
+
+    def _apply_bus_side_constraints_to_router_network(
+        self,
+        routed_network: RouterNetwork,
+    ) -> None:
+        """Keep bus-attached components on their saved side after routing."""
+        routed_nodes = routed_network.get("nodes", [])
+        if not isinstance(routed_nodes, list):
+            return
+
+        current_by_id = {str(node["id"]): node for node in self.diagram_nodes}
+        routed_by_id = {
+            str(node.get("id", "")): node
+            for node in routed_nodes
+            if isinstance(node, dict) and node.get("id")
+        }
+        routed_bus_nodes_by_name = self._bus_nodes_by_name(routed_nodes)
+
+        for node_id, routed_node in routed_by_id.items():
+            current_node = current_by_id.get(node_id)
+            if current_node is None:
+                continue
+            attrs = routed_node.get("attrs")
+            if not isinstance(attrs, dict):
+                attrs = current_node.get("attrs", {})
+            if not isinstance(attrs, dict):
+                continue
+
+            bus_name = str(attrs.get("bus", ""))
+            bus_node = routed_bus_nodes_by_name.get(bus_name)
+            if bus_node is None:
+                continue
+
+            layout = current_node.get("layout", {})
+            bus_side = (
+                normalize_bus_side(layout.get("bus_side"))
+                if isinstance(layout, dict)
+                else ""
+            )
+            if not bus_side:
+                current_bus_node = self._bus_nodes_by_name().get(bus_name)
+                if current_bus_node is not None:
+                    bus_side = self._bus_side_for_node_position(
+                        current_node,
+                        current_bus_node,
+                    )
+            if not bus_side:
+                continue
+
+            position = routed_node.get("position", {})
+            bus_position = bus_node.get("position", {})
+            if not isinstance(position, dict) or not isinstance(bus_position, dict):
+                continue
+            try:
+                x = float(position.get("x", 0))
+                bus_x = float(bus_position.get("x", 0))
+            except TypeError, ValueError:
+                continue
+
+            if bus_side == "left" and x >= bus_x:
+                position["x"] = bus_x - 150.0
+            elif bus_side == "right" and x <= bus_x:
+                position["x"] = bus_x + 150.0
 
     def _reference_options_for_attr(self, attr_name: str) -> list[str]:
         """Return available row names for a global reference attribute."""
@@ -3961,6 +4143,11 @@ class State(rx.State):
             for update in updates
             if "id" in update
         }
+        layout_updates = {
+            str(update["id"]): update.get("layout", {})
+            for update in updates
+            if "id" in update
+        }
         bus_targets = {
             str(update["id"]): str(update.get("bus_node_id", ""))
             for update in updates
@@ -3980,6 +4167,14 @@ class State(rx.State):
                     "x": new_position["x"],
                     "y": new_position["y"],
                 }
+            layout_update = layout_updates.get(node["id"])
+            if isinstance(layout_update, dict):
+                bus_side = normalize_bus_side(layout_update.get("bus_side"))
+                if bus_side:
+                    layout = node.setdefault("layout", {})
+                    if layout.get("bus_side") != bus_side:
+                        layout["bus_side"] = bus_side
+                        changed = True
             bus_node_id = bus_targets.get(node["id"])
             if bus_node_id and "bus" in node["attrs"] and not node["attrs"].get("bus"):
                 bus_name = self._bus_name_for_node_id(bus_node_id)
@@ -3988,16 +4183,22 @@ class State(rx.State):
                     node["attrs"]["bus"] = bus_name
                     bus_position = self._node_position(bus_node_id)
                     if bus_position:
-                        if node["component"] == "generators":
+                        layout = node.setdefault("layout", {})
+                        bus_side = normalize_bus_side(
+                            layout.get("bus_side")
+                        ) or default_bus_side_for_component(node["component"])
+                        if bus_side == "left":
                             node["position"] = {
                                 "x": bus_position["x"] - 120,
                                 "y": bus_position["y"] + 8,
                             }
+                            layout["bus_side"] = "left"
                         else:
                             node["position"] = {
                                 "x": bus_position["x"] + 120,
                                 "y": bus_position["y"] + 8,
                             }
+                            layout["bus_side"] = "right"
                     component = NETWORK_MODEL.component(node["component"])
                     node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
                     if node["id"] == self.selected_node_id:
@@ -4048,6 +4249,7 @@ class State(rx.State):
                 "component": node["component"],
                 "pypsa_name": node["pypsa_name"],
                 "position": node["position"],
+                "layout": node.get("layout", {}),
                 "attrs": node["attrs"],
                 "hidden": node["hidden"],
             }
