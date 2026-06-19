@@ -95,6 +95,13 @@ def demo_styles() -> rx.Component:
             border-color: var(--accent-9) !important;
             background: color-mix(in srgb, var(--accent-4) 76%, var(--color-panel-solid)) !important;
           }
+          .canvas-tool-separator {
+            width: 1px !important;
+            height: 24px !important;
+            margin: 0 2px !important;
+            border-radius: 9999px !important;
+            background: color-mix(in srgb, var(--gray-8) 70%, transparent);
+          }
           .palette-sidebar,
           .inspector-sidebar {
             background: var(--gray-4);

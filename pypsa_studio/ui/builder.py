@@ -521,17 +521,23 @@ def canvas_tool_button(
     )
 
 
+def canvas_tool_separator() -> rx.Component:
+    """Render a slim visual divider between canvas toolbar controls."""
+    return rx.box(class_name="canvas-tool-separator")
+
+
 def canvas_toolbar() -> rx.Component:
     """Render the compact canvas tool row above the schematic canvas."""
     return rx.hstack(
         canvas_tool_button(
-            icon="recycle",
+            icon="route",
             label="Auto route",
             shortcut="Ctrl+R",
             on_click=State.auto_route_canvas,
             color="#d8a200",
             element_id="canvas-auto-route-toolbar-button",
         ),
+        canvas_tool_separator(),
         canvas_tool_button(
             icon="eye-off",
             label="Hide by carrier",
@@ -546,6 +552,7 @@ def canvas_toolbar() -> rx.Component:
             color="#15803d",
             element_id="canvas-unhide-all-toolbar-button",
         ),
+        canvas_tool_separator(),
         canvas_tool_button(
             icon="scan",
             label="Rectangle selection",
@@ -554,6 +561,7 @@ def canvas_toolbar() -> rx.Component:
             element_id="canvas-rectangle-selection-toolbar-button",
             active=State.rectangle_selection_armed,
         ),
+        canvas_tool_separator(),
         canvas_tool_button(
             icon="lock",
             label="Lock all in place",
@@ -568,6 +576,24 @@ def canvas_toolbar() -> rx.Component:
             color="#64748b",
             element_id="canvas-unlock-all-toolbar-button",
         ),
+        canvas_tool_separator(),
+        canvas_tool_button(
+            icon="undo-2",
+            label="Undo",
+            shortcut="Ctrl+Z",
+            on_click=State.undo_canvas,
+            color="#334155",
+            disabled=rx.cond(State.can_undo_canvas, False, True),
+        ),
+        canvas_tool_button(
+            icon="redo-2",
+            label="Redo",
+            shortcut="Ctrl+Shift+Z",
+            on_click=State.redo_canvas,
+            color="#334155",
+            disabled=rx.cond(State.can_redo_canvas, False, True),
+        ),
+        canvas_tool_separator(),
         spacing="2",
         align="center",
         width="100%",
