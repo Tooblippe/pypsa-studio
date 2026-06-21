@@ -94,6 +94,28 @@ from pypsa_studio.types import (
 
 BUS_COMPONENT_HORIZONTAL_OFFSET = 75.0
 BUS_COMPONENT_DROP_OFFSET = 60.0
+DEFAULT_CANVAS_REGION_COLOR = "#2563eb"
+CANVAS_REGION_COLORS = {
+    "#2563eb",
+    "#16a34a",
+    "#d97706",
+    "#dc2626",
+    "#7c3aed",
+    "#0891b2",
+    "#4b5563",
+}
+CANVAS_REGION_NODE_SIZES = {
+    "buses": (24.0, 92.0),
+    "bus": (24.0, 92.0),
+    "generators": (44.0, 64.0),
+    "generator": (44.0, 64.0),
+    "loads": (42.0, 68.0),
+    "load": (42.0, 68.0),
+    "storage_units": (44.0, 72.0),
+    "storage_unit": (44.0, 72.0),
+    "stores": (50.0, 72.0),
+    "store": (50.0, 72.0),
+}
 
 
 def clean_upload_staging_dir(upload_dir: str | Path) -> None:
@@ -911,6 +933,12 @@ def load_layout_regions(csv_folder: Path) -> list[CanvasRegion]:
             continue
         region_id = str(entry.get("id", "")).strip() or f"region-{index + 1}"
         name = str(entry.get("name", "")).strip() or f"Region {index + 1}"
+        color = normalize_canvas_region_color(entry.get("color"))
+        summary_node_ids = [
+            str(node_id)
+            for node_id in entry.get("summary_node_ids", [])
+            if str(node_id).strip()
+        ]
         regions.append(
             {
                 "id": region_id,
@@ -919,9 +947,20 @@ def load_layout_regions(csv_folder: Path) -> list[CanvasRegion]:
                 "y": y,
                 "width": width,
                 "height": height,
+                "color": color,
+                "summary": bool(entry.get("summary", False)),
+                "summary_node_ids": summary_node_ids,
             }
         )
     return regions
+
+
+def normalize_canvas_region_color(value: object) -> str:
+    """Return a supported canvas region color."""
+    color = str(value or "").strip().lower()
+    if color in CANVAS_REGION_COLORS:
+        return color
+    return DEFAULT_CANVAS_REGION_COLOR
 
 
 def apply_layout_positions(
@@ -4682,12 +4721,279 @@ Router_type_options = [
                 "y": bounds["y"],
                 "width": bounds["width"],
                 "height": bounds["height"],
+                "color": DEFAULT_CANVAS_REGION_COLOR,
+                "summary": False,
+                "summary_node_ids": [],
             }
         )
         self.is_mark_region_dialog_open = False
         self.mark_region_name = ""
         self.pending_region_bounds = {}
         self.pending_region_node_ids = []
+        self._sync_diagram_model()
+        if self.selected_node_id:
+            self.select_node(self.selected_node_id)
+
+    def rename_canvas_region(self, region_id: str, name: str) -> None:
+        """Rename a marked canvas region by id."""
+        target_id = str(region_id)
+        next_name = str(name).strip()
+        if not target_id or not next_name:
+            return
+        for region in self.canvas_regions:
+            if region["id"] != target_id:
+                continue
+            if str(region.get("name", "")) == next_name:
+                return
+            self._push_canvas_history()
+            region["name"] = next_name
+            self._sync_diagram_model()
+            return
+
+    def set_canvas_region_color(self, region_id: str, color: object) -> None:
+        """Set the display color for a marked canvas region."""
+        target_id = str(region_id)
+        next_color = normalize_canvas_region_color(color)
+        if not target_id:
+            return
+        for region in self.canvas_regions:
+            if region["id"] != target_id:
+                continue
+            if normalize_canvas_region_color(region.get("color")) == next_color:
+                return
+            self._push_canvas_history()
+            region["color"] = next_color
+            self._sync_diagram_model()
+            return
+
+    def _canvas_node_rect(self, node: DiagramNode) -> dict[str, float] | None:
+        """Return approximate flow-space bounds for a visible canvas node."""
+        if node.get("hidden") or not is_canvas_visible(node):
+            return None
+        position = node.get("position", {})
+        if not isinstance(position, dict):
+            return None
+        try:
+            x = float(position.get("x", 0))
+            y = float(position.get("y", 0))
+        except TypeError, ValueError:
+            return None
+        width, height = CANVAS_REGION_NODE_SIZES.get(
+            str(node.get("component", "")).lower(),
+            (56.0, 76.0),
+        )
+        return {"x": x, "y": y, "right": x + width, "bottom": y + height}
+
+    def _region_intersects_node(
+        self,
+        bounds: dict[str, float],
+        node: DiagramNode,
+    ) -> bool:
+        """Return whether region bounds intersect a visible canvas node."""
+        node_rect = self._canvas_node_rect(node)
+        if node_rect is None:
+            return False
+        region_rect = {
+            "x": bounds["x"],
+            "y": bounds["y"],
+            "right": bounds["x"] + bounds["width"],
+            "bottom": bounds["y"] + bounds["height"],
+        }
+        return not (
+            node_rect["right"] < region_rect["x"]
+            or node_rect["x"] > region_rect["right"]
+            or node_rect["bottom"] < region_rect["y"]
+            or node_rect["y"] > region_rect["bottom"]
+        )
+
+    def node_ids_intersecting_region(
+        self,
+        bounds: dict[str, float],
+    ) -> set[str]:
+        """Return ids for visible nodes intersecting a region."""
+        return {
+            str(node["id"])
+            for node in self.diagram_nodes
+            if self._region_intersects_node(bounds, node)
+        }
+
+    def summarized_region_node_ids(self) -> set[str]:
+        """Return node ids hidden by any active summary region."""
+        node_ids: set[str] = set()
+        for region in self.canvas_regions:
+            if not bool(region.get("summary", False)):
+                continue
+            node_ids.update(
+                str(node_id)
+                for node_id in region.get("summary_node_ids", [])
+                if str(node_id).strip()
+            )
+        return node_ids
+
+    def summarize_canvas_region(self, region_id: str) -> None:
+        """Hide visible nodes inside a region and mark it as a summary."""
+        target_id = str(region_id)
+        target_region = next(
+            (region for region in self.canvas_regions if region["id"] == target_id),
+            None,
+        )
+        if target_region is None:
+            return
+        bounds = self._coerce_region_bounds(target_region)
+        if bounds is None:
+            return
+        node_ids = self.node_ids_intersecting_region(bounds)
+        if not node_ids:
+            return
+
+        changed = not bool(target_region.get("summary", False))
+        existing_summary_ids = {
+            str(node_id)
+            for node_id in target_region.get("summary_node_ids", [])
+            if str(node_id).strip()
+        }
+        if existing_summary_ids != node_ids:
+            changed = True
+        for node in self.diagram_nodes:
+            if node["id"] not in node_ids:
+                continue
+            if is_canvas_visible(node):
+                changed = True
+                break
+        if not changed:
+            return
+
+        self._push_canvas_history()
+        for node in self.diagram_nodes:
+            if node["id"] not in node_ids:
+                continue
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            layout["visible"] = False
+        target_region["summary"] = True
+        target_region["summary_node_ids"] = sorted(node_ids)
+        if self.selected_node_id in node_ids:
+            self.selected_node_id = ""
+            self.selected_component_name = ""
+            self.selected_attr_rows = []
+        self._sync_diagram_model()
+
+    def unhide_canvas_region_summary(self, region_id: str) -> None:
+        """Unhide nodes hidden by a specific summary region."""
+        target_id = str(region_id)
+        target_region = next(
+            (region for region in self.canvas_regions if region["id"] == target_id),
+            None,
+        )
+        if target_region is None:
+            return
+        node_ids = {
+            str(node_id)
+            for node_id in target_region.get("summary_node_ids", [])
+            if str(node_id).strip()
+        }
+        changed = bool(target_region.get("summary", False)) or bool(node_ids)
+        nodes_by_id = {str(node["id"]): node for node in self.diagram_nodes}
+        for node_id in node_ids:
+            node = nodes_by_id.get(node_id)
+            layout = node.get("layout", {}) if node is not None else {}
+            if isinstance(layout, dict) and layout.get("visible") is False:
+                changed = True
+                break
+        if not changed:
+            return
+
+        self._push_canvas_history()
+        for node_id in node_ids:
+            node = nodes_by_id.get(node_id)
+            if node is None:
+                continue
+            layout = node.get("layout", {})
+            if isinstance(layout, dict):
+                layout.pop("visible", None)
+        target_region["summary"] = False
+        target_region["summary_node_ids"] = []
+        self._sync_diagram_model()
+
+    def move_canvas_region(
+        self,
+        region_id: str,
+        bounds: dict[str, object],
+        node_updates: list[object],
+        lock_node_ids: list[object],
+    ) -> None:
+        """Move a region and optionally move or lock intersecting nodes."""
+        target_id = str(region_id)
+        region_bounds = self._coerce_region_bounds(bounds)
+        if not target_id or region_bounds is None:
+            return
+        target_region = next(
+            (region for region in self.canvas_regions if region["id"] == target_id),
+            None,
+        )
+        if target_region is None:
+            return
+
+        parsed_positions: dict[str, dict[str, float]] = {}
+        for update in node_updates:
+            if not isinstance(update, dict) or "id" not in update:
+                continue
+            position = update.get("position", {})
+            if not isinstance(position, dict):
+                continue
+            try:
+                parsed_positions[str(update["id"])] = {
+                    "x": float(position.get("x", 0)),
+                    "y": float(position.get("y", 0)),
+                }
+            except TypeError, ValueError:
+                continue
+
+        final_lock_ids = {
+            str(node_id) for node_id in lock_node_ids if str(node_id).strip()
+        }
+        final_lock_ids.update(self.node_ids_intersecting_region(region_bounds))
+        changed = any(
+            float(target_region[key]) != region_bounds[key]
+            for key in ("x", "y", "width", "height")
+        )
+
+        nodes_by_id = {str(node["id"]): node for node in self.diagram_nodes}
+        for node_id, position in parsed_positions.items():
+            node = nodes_by_id.get(node_id)
+            if node is None or node.get("hidden") or not is_canvas_visible(node):
+                continue
+            if node["position"] != position:
+                changed = True
+
+        for node_id in final_lock_ids:
+            node = nodes_by_id.get(node_id)
+            if node is None or node.get("hidden") or not is_canvas_visible(node):
+                continue
+            if not self.is_node_layout_locked(node):
+                changed = True
+
+        if not changed:
+            return
+
+        self._push_canvas_history()
+        target_region.update(region_bounds)
+        for node_id, position in parsed_positions.items():
+            node = nodes_by_id.get(node_id)
+            if node is None or node.get("hidden") or not is_canvas_visible(node):
+                continue
+            node["position"] = position
+        for node_id in final_lock_ids:
+            node = nodes_by_id.get(node_id)
+            if node is None or node.get("hidden") or not is_canvas_visible(node):
+                continue
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            layout["locked"] = True
         self._sync_diagram_model()
         if self.selected_node_id:
             self.select_node(self.selected_node_id)
@@ -4875,6 +5181,11 @@ Router_type_options = [
             "lock_selection",
             "mark_regions",
             "finish_rectangle_selection",
+            "rename_region",
+            "set_region_color",
+            "move_region",
+            "hide_region_summary",
+            "unhide_region_summary",
         }:
             return
         if target_kind not in {"component", "branch", "selection", "region"}:
@@ -4885,6 +5196,35 @@ Router_type_options = [
         if target_kind == "region":
             if action_id == "delete":
                 self.delete_canvas_region(str(payload.get("region_id", "")))
+            if action_id == "rename_region":
+                self.rename_canvas_region(
+                    str(payload.get("region_id", "")),
+                    str(payload.get("region_name", "")),
+                )
+            if action_id == "set_region_color":
+                self.set_canvas_region_color(
+                    str(payload.get("region_id", "")),
+                    payload.get("region_color", ""),
+                )
+            if action_id == "move_region":
+                region_bounds = payload.get("region_bounds", {})
+                node_updates = payload.get("node_updates", [])
+                lock_node_ids = payload.get("lock_node_ids", [])
+                if (
+                    isinstance(region_bounds, dict)
+                    and isinstance(node_updates, list)
+                    and isinstance(lock_node_ids, list)
+                ):
+                    self.move_canvas_region(
+                        str(payload.get("region_id", "")),
+                        region_bounds,
+                        node_updates,
+                        lock_node_ids,
+                    )
+            if action_id == "hide_region_summary":
+                self.summarize_canvas_region(str(payload.get("region_id", "")))
+            if action_id == "unhide_region_summary":
+                self.unhide_canvas_region_summary(str(payload.get("region_id", "")))
             return
         if target_kind == "selection":
             node_ids = payload.get("node_ids", [])
@@ -5194,13 +5534,30 @@ Router_type_options = [
             for node in self.diagram_nodes
             if node["component"] == "buses"
         }
+        summarized_node_ids = self.summarized_region_node_ids()
+        summary_node_sets = [
+            {
+                str(node_id)
+                for node_id in region.get("summary_node_ids", [])
+                if str(node_id).strip()
+            }
+            for region in self.canvas_regions
+            if bool(region.get("summary", False))
+        ]
         edges: list[DiagramEdge] = []
+
+        def is_internal_summary_edge(source_id: str, target_id: str) -> bool:
+            """Return whether both edge endpoints are inside one summary."""
+            return any(
+                source_id in summary_nodes and target_id in summary_nodes
+                for summary_nodes in summary_node_sets
+            )
 
         for node in self.diagram_nodes:
             component_name = node["component"]
             if component_name == "buses":
                 continue
-            if not is_canvas_visible(node):
+            if not is_canvas_visible(node) and node["id"] not in summarized_node_ids:
                 continue
 
             attrs = node["attrs"]
@@ -5208,6 +5565,8 @@ Router_type_options = [
                 bus0_id = bus_ids_by_name.get(str(attrs.get("bus0", "")))
                 bus1_id = bus_ids_by_name.get(str(attrs.get("bus1", "")))
                 if bus0_id and bus1_id and bus0_id != bus1_id:
+                    if is_internal_summary_edge(bus0_id, bus1_id):
+                        continue
                     branch_style: dict[str, object] = {
                         "strokeWidth": 3,
                     }
@@ -5239,6 +5598,8 @@ Router_type_options = [
             bus_name = attrs.get("bus")
             bus_id = bus_ids_by_name.get(str(bus_name))
             if bus_id:
+                if is_internal_summary_edge(node["id"], bus_id):
+                    continue
                 if component_name == "generators":
                     source = node["id"]
                     target = bus_id

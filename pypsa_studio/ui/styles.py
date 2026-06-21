@@ -109,6 +109,37 @@ def demo_styles() -> rx.Component:
           .palette-sidebar {
             padding: 6px !important;
           }
+          .palette-tool-button {
+            --palette-tool-color: #15803d;
+            box-sizing: border-box !important;
+            border: 1px solid color-mix(in srgb, var(--gray-8) 72%, transparent) !important;
+            border-radius: 6px !important;
+            background: var(--gray-4) !important;
+            color: var(--gray-12) !important;
+            line-height: 1 !important;
+            box-shadow: 0 1px 0 color-mix(in srgb, white 50%, transparent) inset;
+            transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+          }
+          .palette-tool-button .palette-symbol {
+            display: block !important;
+            width: 18px !important;
+            height: 18px !important;
+            flex: 0 0 auto !important;
+            object-fit: contain;
+            filter: none;
+          }
+          .palette-tool-button:hover,
+          .palette-tool-button:focus-visible {
+            border-color: var(--palette-tool-color) !important;
+            background: color-mix(in srgb, var(--palette-tool-color) 12%, var(--gray-4)) !important;
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--palette-tool-color) 28%, transparent);
+            outline: none;
+            transform: translateY(-1px);
+          }
+          .palette-tool-button[data-active="true"] {
+            border-color: var(--palette-tool-color) !important;
+            background: color-mix(in srgb, var(--palette-tool-color) 16%, var(--color-panel-solid)) !important;
+          }
           .inspector-sidebar {
             padding: 14px !important;
           }
@@ -251,11 +282,18 @@ def demo_styles() -> rx.Component:
           .canvas-region {
             position: absolute;
             pointer-events: auto;
-            border: 1px solid #2563eb;
+            border: var(--region-border-width, 1px) solid var(--region-color, #2563eb);
             border-radius: 4px;
-            background: color-mix(in srgb, #60a5fa 18%, transparent);
-            box-shadow: 0 0 0 1px color-mix(in srgb, #2563eb 22%, transparent) inset;
+            background: color-mix(in srgb, var(--region-color, #2563eb) var(--region-fill-percent, 16%), transparent);
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--region-color, #2563eb) 22%, transparent) inset;
             cursor: context-menu;
+          }
+          .canvas-region[data-armed="true"],
+          .canvas-region[data-dragging="true"] {
+            box-shadow:
+              0 0 0 2px color-mix(in srgb, var(--region-color, #2563eb) 38%, transparent),
+              0 0 0 1px color-mix(in srgb, var(--region-color, #2563eb) 30%, transparent) inset;
+            cursor: move;
           }
           .canvas-region-label {
             position: absolute;
@@ -264,10 +302,10 @@ def demo_styles() -> rx.Component:
             max-width: 180px;
             min-height: 22px;
             padding: 2px 7px;
-            border: 1px solid #2563eb;
+            border: 1px solid var(--region-color, #2563eb);
             border-radius: 4px;
-            background: color-mix(in srgb, #eff6ff 92%, white);
-            color: #1d4ed8;
+            background: color-mix(in srgb, var(--region-color, #2563eb) 12%, white);
+            color: color-mix(in srgb, var(--region-color, #2563eb) 78%, black);
             font: inherit;
             font-size: 12px;
             line-height: 16px;
@@ -277,6 +315,40 @@ def demo_styles() -> rx.Component:
             text-overflow: ellipsis;
             cursor: context-menu;
             pointer-events: auto;
+          }
+          .canvas-region[data-armed="true"] .canvas-region-label,
+          .canvas-region[data-dragging="true"] .canvas-region-label {
+            cursor: move;
+            font-weight: 600;
+          }
+          .canvas-region-label-input {
+            width: min(180px, max(92px, 100%));
+            outline: none;
+            cursor: text !important;
+          }
+          .canvas-region[data-summary="true"] .canvas-region-label {
+            top: 50%;
+            left: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: min(82%, 420px);
+            max-width: none;
+            min-height: 44px;
+            padding: 8px 14px;
+            border-width: 2px;
+            background: color-mix(in srgb, var(--region-color, #2563eb) 18%, white);
+            color: color-mix(in srgb, var(--region-color, #2563eb) 72%, black);
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 28px;
+            text-align: center;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            transform: translate(-50%, -50%);
+          }
+          .canvas-region[data-summary="true"] .canvas-region-label-input {
+            height: auto;
           }
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge,
           .react-flow-shell[data-branch-armed="true"] .react-flow__edge-path,
@@ -319,6 +391,27 @@ def demo_styles() -> rx.Component:
           .canvas-context-menu-item:focus-visible {
             background: var(--accent-4);
             outline: none;
+          }
+          .canvas-region-color-menu {
+            display: grid;
+            grid-template-columns: repeat(4, 28px);
+            gap: 6px;
+            padding: 4px;
+          }
+          .canvas-region-color-option {
+            width: 28px;
+            height: 28px;
+            border: 1px solid color-mix(in srgb, var(--gray-12) 28%, transparent);
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 1px 0 color-mix(in srgb, white 45%, transparent) inset;
+          }
+          .canvas-region-color-option[data-selected="true"] {
+            outline: 2px solid var(--gray-12);
+            outline-offset: 1px;
+          }
+          .canvas-region-color-menu .canvas-context-menu-item {
+            grid-column: 1 / -1;
           }
           .schematic-symbol-layer {
             position: relative;

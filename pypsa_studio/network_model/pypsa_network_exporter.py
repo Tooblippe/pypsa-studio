@@ -243,6 +243,13 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
                 "y": y,
                 "width": width,
                 "height": height,
+                "color": str(region.get("color", "") or ""),
+                "summary": bool(region.get("summary", False)),
+                "summary_node_ids": [
+                    str(node_id)
+                    for node_id in region.get("summary_node_ids", [])
+                    if str(node_id).strip()
+                ],
             }
         )
 

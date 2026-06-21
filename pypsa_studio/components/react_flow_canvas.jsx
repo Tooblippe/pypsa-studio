@@ -36,6 +36,16 @@ const BUS_CONNECTION_PADDING_PX = 10;
 const EDGE_LABEL_VERTICAL_THRESHOLD_PX = 8;
 const EDGE_SYMBOL_SIZE_PX = 24;
 const BUS_COMPONENT_HORIZONTAL_OFFSET_PX = 75;
+const DEFAULT_REGION_COLOR = "#2563eb";
+const REGION_COLOR_OPTIONS = [
+  { color: "#2563eb", label: "Blue" },
+  { color: "#16a34a", label: "Green" },
+  { color: "#d97706", label: "Amber" },
+  { color: "#dc2626", label: "Red" },
+  { color: "#7c3aed", label: "Violet" },
+  { color: "#0891b2", label: "Cyan" },
+  { color: "#4b5563", label: "Gray" },
+];
 
 function componentToBuilderKind(component) {
   const key = String(component || "").toLowerCase();
@@ -636,6 +646,43 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
     targetKinds: ["selection"],
   },
   {
+    id: "rename_region",
+    label: "Rename",
+    targetKinds: ["region"],
+  },
+  {
+    id: "open_region_color",
+    label: "Colour",
+    targetKinds: ["region"],
+  },
+  {
+    id: "drag_region_marker",
+    label: "Drag region marker",
+    targetKinds: ["region"],
+  },
+  {
+    id: "drag_region_with_components",
+    label: "Drag region with components",
+    targetKinds: ["region"],
+  },
+  {
+    id: "zoom_to_region",
+    label: "Zoom to region",
+    targetKinds: ["region"],
+  },
+  {
+    id: "hide_region_summary",
+    label: "Hide all",
+    targetKinds: ["region"],
+    hidden: (contextMenu) => Boolean(contextMenu?.isSummary),
+  },
+  {
+    id: "unhide_region_summary",
+    label: "Unhide everything",
+    targetKinds: ["region"],
+    hidden: (contextMenu) => !Boolean(contextMenu?.isSummary),
+  },
+  {
     id: "delete",
     label: "Delete",
     targetKinds: ["component", "branch", "region"],
@@ -746,6 +793,88 @@ function localRectFromFlowBounds(region, reactFlow, wrapper) {
   };
 }
 
+function normalizeRegionColor(color) {
+  const value = String(color || "").trim().toLowerCase();
+  return REGION_COLOR_OPTIONS.some((option) => option.color === value)
+    ? value
+    : DEFAULT_REGION_COLOR;
+}
+
+function regionStyleVars(region, active = false) {
+  const color = normalizeRegionColor(region?.color);
+  return {
+    "--region-color": color,
+    "--region-fill-percent": active ? "24%" : "16%",
+    "--region-border-width": active ? "2px" : "1px",
+  };
+}
+
+function offsetRegionBounds(region, delta) {
+  return {
+    x: Number(region?.x || 0) + Number(delta?.x || 0),
+    y: Number(region?.y || 0) + Number(delta?.y || 0),
+    width: Number(region?.width || 0),
+    height: Number(region?.height || 0),
+  };
+}
+
+function flowRectForRegion(region) {
+  const x = Number(region?.x || 0);
+  const y = Number(region?.y || 0);
+  const width = Number(region?.width || 0);
+  const height = Number(region?.height || 0);
+  return { x, y, width, height, right: x + width, bottom: y + height };
+}
+
+function flowNodeRect(node) {
+  const width = Number.parseFloat(node.style?.width) || 56;
+  const height = Number.parseFloat(node.style?.height) || 56;
+  const x = Number(node?.position?.x || 0);
+  const y = Number(node?.position?.y || 0);
+  return { x, y, right: x + width, bottom: y + height };
+}
+
+function flowRectsIntersect(left, right) {
+  return !(
+    left.right < right.x ||
+    left.x > right.right ||
+    left.bottom < right.y ||
+    left.y > right.bottom
+  );
+}
+
+function zoomToRegionBounds(region, reactFlow, wrapper) {
+  const bounds = {
+    x: Number(region?.x || 0),
+    y: Number(region?.y || 0),
+    width: Number(region?.width || 0),
+    height: Number(region?.height || 0),
+  };
+  if (bounds.width <= 0 || bounds.height <= 0) return;
+  if (typeof reactFlow.fitBounds === "function") {
+    reactFlow.fitBounds(bounds, { padding: 0.18, duration: 450 });
+    return;
+  }
+  if (typeof reactFlow.setCenter !== "function") return;
+  const viewportWidth = wrapper?.clientWidth || 1;
+  const viewportHeight = wrapper?.clientHeight || 1;
+  const paddedWidth = bounds.width * 1.36;
+  const paddedHeight = bounds.height * 1.36;
+  const zoom = Math.max(
+    0.1,
+    Math.min(
+      2,
+      viewportWidth / Math.max(paddedWidth, 1),
+      viewportHeight / Math.max(paddedHeight, 1),
+    ),
+  );
+  reactFlow.setCenter(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height / 2,
+    { zoom, duration: 450 },
+  );
+}
+
 function localNodeRect(node, reactFlow, wrapper) {
   const wrapperBounds = wrapper?.getBoundingClientRect();
   const width = Number.parseFloat(node.style?.width) || 56;
@@ -830,7 +959,7 @@ function edgePathIntersectsRect(wrapper, edge, rect) {
 function CanvasContextMenu({ contextMenu, onAction }) {
   if (!contextMenu) return null;
   const menuItems = canvasContextMenuItemsForTarget(contextMenu);
-  if (!menuItems.length) return null;
+  if (!menuItems.length && contextMenu.mode !== "color") return null;
 
   return (
     <div
@@ -845,22 +974,56 @@ function CanvasContextMenu({ contextMenu, onAction }) {
       onContextMenu={(event) => event.preventDefault()}
     >
       <div className="canvas-context-menu-title">
-        {canvasContextTargetLabel(contextMenu)}
+        {contextMenu.mode === "color" ? "Region colour" : canvasContextTargetLabel(contextMenu)}
       </div>
-      {menuItems.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className="canvas-context-menu-item"
-          role="menuitem"
-          onClick={(event) => {
-            event.stopPropagation();
-            onAction(item.id, contextMenu);
-          }}
-        >
-          {typeof item.label === "function" ? item.label(contextMenu) : item.label}
-        </button>
-      ))}
+      {contextMenu.mode === "color" ? (
+        <div className="canvas-region-color-menu" role="group" aria-label="Region colour presets">
+          {REGION_COLOR_OPTIONS.map((option) => (
+            <button
+              key={option.color}
+              type="button"
+              className="canvas-region-color-option"
+              aria-label={option.label}
+              title={option.label}
+              style={{ background: option.color }}
+              data-selected={(contextMenu.regionColor || DEFAULT_REGION_COLOR) === option.color ? "true" : "false"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAction("set_region_color", {
+                  ...contextMenu,
+                  regionColor: option.color,
+                });
+              }}
+            />
+          ))}
+          <button
+            type="button"
+            className="canvas-context-menu-item"
+            role="menuitem"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction("show_region_menu", { ...contextMenu, mode: "" });
+            }}
+          >
+            Back
+          </button>
+        </div>
+      ) : (
+        menuItems.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="canvas-context-menu-item"
+            role="menuitem"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction(item.id, contextMenu);
+            }}
+          >
+            {typeof item.label === "function" ? item.label(contextMenu) : item.label}
+          </button>
+        ))
+      )}
     </div>
   );
 }
@@ -887,6 +1050,7 @@ function CanvasInner({
   const lastRoutedVersionRef = useRefReactFlowCanvas(0);
   const lastHandledFitViewVersionRef = useRefReactFlowCanvas(0);
   const suppressNextPaneClickRef = useRefReactFlowCanvas(false);
+  const cancelRegionRenameRef = useRefReactFlowCanvas(false);
   const [hoverBusId, setHoverBusId] = useStateReactFlowCanvas("");
   const [dragComponent, setDragComponent] = useStateReactFlowCanvas("");
   const [dragBusSidePreview, setDragBusSidePreview] = useStateReactFlowCanvas({
@@ -895,6 +1059,10 @@ function CanvasInner({
   });
   const [contextMenu, setContextMenu] = useStateReactFlowCanvas(null);
   const [selectionDrag, setSelectionDrag] = useStateReactFlowCanvas(null);
+  const [armedRegionDrag, setArmedRegionDrag] = useStateReactFlowCanvas(null);
+  const [regionDrag, setRegionDrag] = useStateReactFlowCanvas(null);
+  const [editingRegionId, setEditingRegionId] = useStateReactFlowCanvas("");
+  const [editingRegionName, setEditingRegionName] = useStateReactFlowCanvas("");
   const [viewportRevision, setViewportRevision] = useStateReactFlowCanvas(0);
   const reactFlow = useReactFlow();
 
@@ -916,6 +1084,17 @@ function CanvasInner({
     ],
   );
 
+  const summarizedRegionNodeIds = useMemoReactFlowCanvas(() => {
+    const nodeIds = new Set();
+    (regions || []).forEach((region) => {
+      if (!region?.summary) return;
+      (region.summary_node_ids || []).forEach((nodeId) => {
+        if (nodeId) nodeIds.add(String(nodeId));
+      });
+    });
+    return nodeIds;
+  }, [regions]);
+
   const flowNodes = useMemoReactFlowCanvas(
     () =>
       nodes.filter((node) => {
@@ -923,7 +1102,7 @@ function CanvasInner({
         return (
           !node.hidden &&
           !isBranchEdgeComponent(node.component) &&
-          (canvasVisible || node.component === "buses")
+          (canvasVisible || node.component === "buses" || summarizedRegionNodeIds.has(node.id))
         );
       }).map((node) => {
         const canvasVisible = isCanvasVisible(node);
@@ -976,6 +1155,7 @@ function CanvasInner({
       nodes,
       onBranchBusClick,
       onNodeSelect,
+      summarizedRegionNodeIds,
     ],
   );
 
@@ -1102,11 +1282,19 @@ function CanvasInner({
     () =>
       (regions || [])
         .filter((region) => Number(region?.width || 0) > 0 && Number(region?.height || 0) > 0)
-        .map((region) => ({
-          ...region,
-          rect: localRectFromFlowBounds(region, reactFlow, flowWrapperRef.current),
-        })),
-    [regions, reactFlow, viewportRevision],
+        .map((region) => {
+          const previewRegion =
+            regionDrag?.regionId === region.id
+              ? { ...region, ...offsetRegionBounds(regionDrag.originalRegion, regionDrag.delta) }
+              : region;
+          return {
+            ...previewRegion,
+            rect: localRectFromFlowBounds(previewRegion, reactFlow, flowWrapperRef.current),
+            isArmedForDrag: armedRegionDrag?.regionId === region.id,
+            isDragging: regionDrag?.regionId === region.id,
+          };
+        }),
+    [armedRegionDrag, regions, reactFlow, regionDrag, viewportRevision],
   );
 
   useEffectReactFlowCanvas(() => {
@@ -1155,6 +1343,12 @@ function CanvasInner({
   useEffectReactFlowCanvas(() => {
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
+        if (editingRegionId) {
+          setEditingRegionId("");
+          setEditingRegionName("");
+        }
+        setArmedRegionDrag(null);
+        setRegionDrag(null);
         closeContextMenu();
         if (rectangleSelectionArmed || selectionDrag) {
           setSelectionDrag(null);
@@ -1168,6 +1362,7 @@ function CanvasInner({
     };
   }, [
     closeContextMenu,
+    editingRegionId,
     finishRectangleSelection,
     rectangleSelectionArmed,
     selectionDrag,
@@ -1278,6 +1473,154 @@ function CanvasInner({
     ],
   );
 
+  const nodeIdsInsideFlowRegion = useCallbackReactFlowCanvas(
+    (region) => {
+      const regionRect = flowRectForRegion(region);
+      return flowNodes
+        .filter((node) => node?.data?.canvasVisible !== false)
+        .filter((node) => flowRectsIntersect(flowNodeRect(node), regionRect))
+        .map((node) => node.id);
+    },
+    [flowNodes],
+  );
+
+  const handleRegionMouseDown = useCallbackReactFlowCanvas(
+    (event, region) => {
+      if (event.button !== 0) return;
+      if (!armedRegionDrag || armedRegionDrag.regionId !== region.id) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeContextMenu();
+      const startPoint = flowPositionFromEvent(event);
+      const capturedNodeIds =
+        armedRegionDrag.mode === "with_components"
+          ? nodeIdsInsideFlowRegion(region)
+          : [];
+      const capturedNodePositions = {};
+      flowNodes.forEach((node) => {
+        if (!capturedNodeIds.includes(node.id)) return;
+        capturedNodePositions[node.id] = {
+          x: Number(node.position?.x || 0),
+          y: Number(node.position?.y || 0),
+        };
+      });
+      setRegionDrag({
+        regionId: region.id,
+        mode: armedRegionDrag.mode,
+        startPoint,
+        originalRegion: {
+          x: Number(region.x || 0),
+          y: Number(region.y || 0),
+          width: Number(region.width || 0),
+          height: Number(region.height || 0),
+        },
+        delta: { x: 0, y: 0 },
+        capturedNodeIds,
+        capturedNodePositions,
+      });
+    },
+    [
+      armedRegionDrag,
+      closeContextMenu,
+      flowNodes,
+      flowPositionFromEvent,
+      nodeIdsInsideFlowRegion,
+    ],
+  );
+
+  const handleRegionDragMove = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!regionDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = flowPositionFromEvent(event);
+      setRegionDrag((current) =>
+        current
+          ? {
+              ...current,
+              delta: {
+                x: point.x - current.startPoint.x,
+                y: point.y - current.startPoint.y,
+              },
+            }
+          : current,
+      );
+    },
+    [flowPositionFromEvent, regionDrag],
+  );
+
+  const completeRegionDrag = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!regionDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = flowPositionFromEvent(event);
+      const delta = {
+        x: point.x - regionDrag.startPoint.x,
+        y: point.y - regionDrag.startPoint.y,
+      };
+      const nextBounds = offsetRegionBounds(regionDrag.originalRegion, delta);
+      const finalRect = flowRectForRegion(nextBounds);
+      const finalLockNodeIds = flowNodes
+        .filter((node) => node?.data?.canvasVisible !== false)
+        .filter((node) => {
+          if (
+            regionDrag.mode === "with_components" &&
+            regionDrag.capturedNodeIds.includes(node.id)
+          ) {
+            const position = regionDrag.capturedNodePositions[node.id] || node.position;
+            const width = Number.parseFloat(node.style?.width) || 56;
+            const height = Number.parseFloat(node.style?.height) || 56;
+            return flowRectsIntersect(
+              {
+                x: Number(position.x || 0) + delta.x,
+                y: Number(position.y || 0) + delta.y,
+                right: Number(position.x || 0) + delta.x + width,
+                bottom: Number(position.y || 0) + delta.y + height,
+              },
+              finalRect,
+            );
+          }
+          return flowRectsIntersect(flowNodeRect(node), finalRect);
+        })
+        .map((node) => node.id);
+      const nodeUpdates =
+        regionDrag.mode === "with_components"
+          ? regionDrag.capturedNodeIds.map((nodeId) => {
+              const position = regionDrag.capturedNodePositions[nodeId] || { x: 0, y: 0 };
+              return {
+                id: nodeId,
+                position: {
+                  x: Number(position.x || 0) + delta.x,
+                  y: Number(position.y || 0) + delta.y,
+                },
+              };
+            })
+          : [];
+      onCanvasContextMenuAction?.({
+        action_id: "move_region",
+        target_kind: "region",
+        region_id: regionDrag.regionId,
+        region_bounds: nextBounds,
+        node_updates: nodeUpdates,
+        lock_node_ids: Array.from(
+          new Set([
+            ...finalLockNodeIds,
+            ...(regionDrag.mode === "with_components" ? regionDrag.capturedNodeIds : []),
+          ]),
+        ),
+      });
+      setRegionDrag(null);
+      setArmedRegionDrag(null);
+    },
+    [
+      flowPositionFromEvent,
+      onCanvasContextMenuAction,
+      regionDrag,
+      flowNodes,
+    ],
+  );
+
   useEffectReactFlowCanvas(() => {
     if (!selectionDrag) return undefined;
     window.addEventListener("mousemove", handleSelectionMouseMoveCapture);
@@ -1290,6 +1633,20 @@ function CanvasInner({
     completeSelectionDrag,
     handleSelectionMouseMoveCapture,
     selectionDrag,
+  ]);
+
+  useEffectReactFlowCanvas(() => {
+    if (!regionDrag) return undefined;
+    window.addEventListener("mousemove", handleRegionDragMove);
+    window.addEventListener("mouseup", completeRegionDrag);
+    return () => {
+      window.removeEventListener("mousemove", handleRegionDragMove);
+      window.removeEventListener("mouseup", completeRegionDrag);
+    };
+  }, [
+    completeRegionDrag,
+    handleRegionDragMove,
+    regionDrag,
   ]);
 
   useEffectReactFlowCanvas(() => {
@@ -1452,6 +1809,7 @@ function CanvasInner({
         suppressNextPaneClickRef.current = false;
         return;
       }
+      setArmedRegionDrag(null);
       closeContextMenu();
       if (rectangleSelectionArmed) return;
       if (!armedComponent || armedBranchComponent) return;
@@ -1472,6 +1830,29 @@ function CanvasInner({
       onNodeDrop,
       rectangleSelectionArmed,
     ],
+  );
+
+  const commitRegionRename = useCallbackReactFlowCanvas(
+    (regionId = editingRegionId, name = editingRegionName) => {
+      if (cancelRegionRenameRef.current) {
+        cancelRegionRenameRef.current = false;
+        setEditingRegionId("");
+        setEditingRegionName("");
+        return;
+      }
+      const nextName = String(name || "").trim();
+      if (regionId && nextName) {
+        onCanvasContextMenuAction?.({
+          action_id: "rename_region",
+          target_kind: "region",
+          region_id: regionId,
+          region_name: nextName,
+        });
+      }
+      setEditingRegionId("");
+      setEditingRegionName("");
+    },
+    [editingRegionId, editingRegionName, onCanvasContextMenuAction],
   );
 
   const handleNodeClick = useCallbackReactFlowCanvas(
@@ -1569,6 +1950,15 @@ function CanvasInner({
         targetKind: "region",
         targetId: region.id,
         regionId: region.id,
+        regionName: region.name || "Region",
+        regionColor: normalizeRegionColor(region.color),
+        regionBounds: {
+          x: Number(region.x || 0),
+          y: Number(region.y || 0),
+          width: Number(region.width || 0),
+          height: Number(region.height || 0),
+        },
+        isSummary: Boolean(region.summary),
         x: position.x,
         y: position.y,
       });
@@ -1579,17 +1969,53 @@ function CanvasInner({
   const handleContextMenuAction = useCallbackReactFlowCanvas(
     (actionId, menuContext) => {
       if (!menuContext) return;
+      if (actionId === "show_region_menu") {
+        setContextMenu({ ...menuContext, mode: "" });
+        return;
+      }
+      if (actionId === "open_region_color") {
+        setContextMenu({ ...menuContext, mode: "color" });
+        return;
+      }
+      if (actionId === "zoom_to_region") {
+        zoomToRegionBounds(menuContext.regionBounds, reactFlow, flowWrapperRef.current);
+        closeContextMenu();
+        return;
+      }
+      if (actionId === "rename_region") {
+        cancelRegionRenameRef.current = false;
+        setEditingRegionId(menuContext.regionId || "");
+        setEditingRegionName(menuContext.regionName || "Region");
+        closeContextMenu();
+        return;
+      }
+      if (actionId === "drag_region_marker" || actionId === "drag_region_with_components") {
+        setArmedRegionDrag({
+          regionId: menuContext.regionId || "",
+          mode: actionId === "drag_region_with_components" ? "with_components" : "marker",
+        });
+        setRegionDrag(null);
+        closeContextMenu();
+        return;
+      }
       onCanvasContextMenuAction?.({
-        action_id: actionId,
+        action_id:
+          actionId === "drag_region_marker" || actionId === "drag_region_with_components"
+            ? "move_region"
+            : actionId,
         target_kind: menuContext.targetKind,
         node_id: menuContext.nodeId || "",
         node_ids: menuContext.nodeIds || [],
         region_id: menuContext.regionId || "",
+        region_name: menuContext.regionName || "",
+        region_color: menuContext.regionColor || "",
         region_bounds: menuContext.regionBounds || {},
+        node_updates: menuContext.nodeUpdates || [],
+        lock_node_ids: menuContext.lockNodeIds || [],
       });
       closeContextMenu();
     },
-    [closeContextMenu, onCanvasContextMenuAction],
+    [closeContextMenu, onCanvasContextMenuAction, reactFlow],
   );
 
   const handleNodeDrag = useCallbackReactFlowCanvas(
@@ -1708,6 +2134,8 @@ function CanvasInner({
       data-armed-component={armedComponent && !armedBranchComponent ? "true" : "false"}
       data-branch-armed={armedBranchComponent ? "true" : "false"}
       data-rectangle-selection-armed={rectangleSelectionArmed ? "true" : "false"}
+      data-region-drag-armed={armedRegionDrag ? "true" : "false"}
+      data-region-dragging={regionDrag ? "true" : "false"}
       ref={flowWrapperRef}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -1730,9 +2158,9 @@ function CanvasInner({
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
-        nodesDraggable={!rectangleSelectionArmed}
-        panOnDrag={!rectangleSelectionArmed}
-        elementsSelectable={!rectangleSelectionArmed}
+        nodesDraggable={!rectangleSelectionArmed && !regionDrag}
+        panOnDrag={!rectangleSelectionArmed && !regionDrag}
+        elementsSelectable={!rectangleSelectionArmed && !regionDrag}
         minZoom={0.1}
       >
         <Background />
@@ -1744,23 +2172,53 @@ function CanvasInner({
             <div
               key={region.id}
               className="canvas-region"
+              data-armed={region.isArmedForDrag ? "true" : "false"}
+              data-dragging={region.isDragging ? "true" : "false"}
+              data-summary={region.summary ? "true" : "false"}
+              onMouseDown={(event) => handleRegionMouseDown(event, region)}
               onContextMenu={(event) => handleRegionContextMenu(event, region)}
               title={region.name || "Region"}
               style={{
+                ...regionStyleVars(region, region.isArmedForDrag || region.isDragging),
                 left: `${region.rect.x}px`,
                 top: `${region.rect.y}px`,
                 width: `${region.rect.width}px`,
                 height: `${region.rect.height}px`,
               }}
             >
-              <button
-                type="button"
-                className="canvas-region-label"
-                onContextMenu={(event) => handleRegionContextMenu(event, region)}
-                title={region.name || "Region"}
-              >
-                {region.name || "Region"}
-              </button>
+              {editingRegionId === region.id ? (
+                <input
+                  className={`canvas-region-label canvas-region-label-input${region.summary ? " canvas-region-summary-label" : ""}`}
+                  value={editingRegionName}
+                  autoFocus
+                  onChange={(event) => setEditingRegionName(event.target.value)}
+                  onBlur={() => commitRegionRename(region.id, editingRegionName)}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitRegionRename(region.id, editingRegionName);
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelRegionRenameRef.current = true;
+                      setEditingRegionId("");
+                      setEditingRegionName("");
+                    }
+                  }}
+                  title={region.name || "Region"}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className={`canvas-region-label${region.summary ? " canvas-region-summary-label" : ""}`}
+                  onMouseDown={(event) => handleRegionMouseDown(event, region)}
+                  onContextMenu={(event) => handleRegionContextMenu(event, region)}
+                  title={region.name || "Region"}
+                >
+                  {region.name || "Region"}
+                </button>
+              )}
             </div>
           ))}
         </div>

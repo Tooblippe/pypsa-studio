@@ -17,3 +17,4 @@ exports
 reflex.lock
 uploaded_files
 uv.lock
+.uv-cache

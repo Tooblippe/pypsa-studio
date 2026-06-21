@@ -1,6 +1,6 @@
 """Shared typed dictionary contracts for PyPSA Studio."""
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import pypsa
 
@@ -69,6 +69,9 @@ class CanvasRegion(TypedDict):
     y: float
     width: float
     height: float
+    color: NotRequired[str]
+    summary: NotRequired[bool]
+    summary_node_ids: NotRequired[list[str]]
 
 
 class DiagramModel(TypedDict):
