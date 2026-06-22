@@ -9,7 +9,8 @@ dependencies = [
     "jupyterlab>=4.5.0",
     "plotly>=6.8.0",
     "reflex>=0.9.5.post2",
-    "pypsa==1.2.3"
+    "pypsa==1.2.3",
+    "tables>=3.11.1",
 ]
 
 [dependency-groups]

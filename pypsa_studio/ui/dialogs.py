@@ -6,6 +6,7 @@ from pypsa_studio.constants import EDITABLE_CSV_UPLOAD_ID
 from pypsa_studio.state import State
 from pypsa_studio.types import (
     CarrierVisibilityRow,
+    FilePickerEntry,
     NetworkDataCell,
     NetworkDataColumn,
     NetworkDataRow,
@@ -16,6 +17,346 @@ from pypsa_studio.types import (
     SettingsTab,
     StandardTypeRow,
 )
+
+
+def file_picker_root_button(entry: rx.Var[FilePickerEntry]) -> rx.Component:
+    """Render one root shortcut in the file picker."""
+    return rx.button(
+        rx.cond(
+            entry["icon"] == "home",
+            rx.icon("home", size=14),
+            rx.icon("hard-drive", size=14),
+        ),
+        entry["name"],
+        variant="soft",
+        size="2",
+        on_click=lambda: State.navigate_file_picker_to_path(entry["path"]),
+    )
+
+
+def file_picker_entry_row(entry: rx.Var[FilePickerEntry]) -> rx.Component:
+    """Render one file picker entry row."""
+    return rx.table.row(
+        rx.table.cell(
+            rx.hstack(
+                rx.cond(
+                    entry["kind"] == "folder",
+                    rx.icon("folder", size=16),
+                    rx.icon("file", size=16),
+                ),
+                rx.cond(
+                    entry["kind"] == "folder",
+                    rx.button(
+                        entry["name"],
+                        variant="ghost",
+                        size="1",
+                        on_click=lambda: State.navigate_file_picker_to_path(
+                            entry["path"]
+                        ),
+                        padding="0",
+                        height="auto",
+                        font_weight="500",
+                    ),
+                    rx.text(entry["name"], size="2", weight="medium"),
+                ),
+                spacing="2",
+                align="center",
+            )
+        ),
+        rx.table.cell(rx.text(entry["modified"], size="1", color_scheme="gray")),
+        rx.table.cell(rx.text(entry["size"], size="1", color_scheme="gray")),
+        rx.table.cell(
+            rx.hstack(
+                rx.button(
+                    rx.icon("folder-open", size=14),
+                    aria_label="Open folder",
+                    title="Open folder",
+                    size="1",
+                    variant="soft",
+                    disabled=entry["kind"] != "folder",
+                    on_click=lambda: State.navigate_file_picker_to_path(entry["path"]),
+                ),
+                rx.button(
+                    rx.icon("check", size=14),
+                    aria_label="Select",
+                    title="Select",
+                    size="1",
+                    variant="soft",
+                    disabled=rx.cond(entry["selectable"], False, True),
+                    on_click=lambda: State.select_file_picker_path(entry["path"]),
+                ),
+                spacing="1",
+                justify="end",
+            )
+        ),
+        background=rx.cond(
+            State.file_picker_selected_path == entry["path"],
+            "var(--accent-3)",
+            "transparent",
+        ),
+    )
+
+
+def file_picker_parent_row() -> rx.Component:
+    """Render the parent directory navigation row."""
+    return rx.table.row(
+        rx.table.cell(
+            rx.hstack(
+                rx.icon("folder-up", size=16),
+                rx.button(
+                    "...",
+                    variant="ghost",
+                    size="1",
+                    on_click=State.navigate_file_picker_parent,
+                    padding="0",
+                    height="auto",
+                    font_weight="500",
+                ),
+                spacing="2",
+                align="center",
+            )
+        ),
+        rx.table.cell(""),
+        rx.table.cell(""),
+        rx.table.cell(""),
+    )
+
+
+def file_picker_save_format_select() -> rx.Component:
+    """Render the file picker save format selector."""
+    return rx.select.root(
+        rx.select.trigger(width="180px"),
+        rx.select.content(
+            rx.select.item("CSV folder", value="csv"),
+            rx.select.item("NetCDF (.nc)", value="netcdf"),
+            rx.select.item("HDF5 (.h5)", value="hdf5"),
+        ),
+        value=State.file_picker_save_format,
+        on_change=State.set_file_picker_save_format,
+        width="180px",
+    )
+
+
+def file_picker_dialog() -> rx.Component:
+    """Render the server-side network file picker dialog."""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                rx.dialog.title(
+                    rx.cond(
+                        State.file_picker_mode == "load",
+                        "Load network",
+                        rx.cond(
+                            State.file_picker_mode == "save",
+                            "Save network",
+                            "Save network as",
+                        ),
+                    )
+                ),
+                rx.hstack(
+                    rx.foreach(State.file_picker_roots, file_picker_root_button),
+                    spacing="2",
+                    wrap="wrap",
+                ),
+                rx.hstack(
+                    rx.button(
+                        rx.icon("arrow-up", size=15),
+                        aria_label="Parent folder",
+                        title="Parent folder",
+                        variant="soft",
+                        size="2",
+                        on_click=State.navigate_file_picker_parent,
+                    ),
+                    rx.input(
+                        value=State.file_picker_path_input,
+                        on_change=State.set_file_picker_path_input,
+                        placeholder="Folder path",
+                        width="100%",
+                    ),
+                    rx.button(
+                        rx.icon("corner-down-right", size=15),
+                        "Go",
+                        variant="soft",
+                        size="2",
+                        on_click=State.navigate_file_picker_from_input,
+                    ),
+                    width="100%",
+                    spacing="2",
+                    align="center",
+                ),
+                rx.cond(
+                    State.file_picker_mode != "load",
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text("Format", size="2", weight="medium"),
+                            file_picker_save_format_select(),
+                            rx.cond(
+                                State.file_picker_save_format == "csv",
+                                rx.text(
+                                    "Select a folder to write CSV files into.",
+                                    size="1",
+                                    color_scheme="gray",
+                                ),
+                                rx.input(
+                                    value=State.file_picker_target_name,
+                                    on_change=State.set_file_picker_target_name,
+                                    placeholder="File name",
+                                    width="100%",
+                                ),
+                            ),
+                            width="100%",
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.hstack(
+                            rx.input(
+                                value=State.file_picker_new_folder_name,
+                                on_change=State.set_file_picker_new_folder_name,
+                                placeholder="New folder name",
+                                width="100%",
+                            ),
+                            rx.button(
+                                rx.icon("folder-plus", size=15),
+                                "Create",
+                                variant="soft",
+                                size="2",
+                                on_click=State.create_file_picker_folder,
+                            ),
+                            width="100%",
+                            spacing="2",
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                ),
+                rx.hstack(
+                    rx.text(
+                        rx.cond(
+                            State.file_picker_selected_path != "",
+                            State.file_picker_selected_path,
+                            "No target selected",
+                        ),
+                        size="1",
+                        color_scheme="gray",
+                        overflow="hidden",
+                        text_overflow="ellipsis",
+                        white_space="nowrap",
+                    ),
+                    rx.spacer(),
+                    rx.checkbox(
+                        "Show hidden",
+                        checked=State.file_picker_show_hidden,
+                        on_change=State.set_file_picker_show_hidden,
+                        size="2",
+                    ),
+                    width="100%",
+                    align="center",
+                ),
+                rx.cond(
+                    State.file_picker_error != "",
+                    rx.hstack(
+                        rx.icon("triangle-alert", size=14),
+                        rx.text(State.file_picker_error, size="1"),
+                        color="var(--red-11)",
+                        background="var(--red-3)",
+                        border="1px solid var(--red-6)",
+                        border_radius="6px",
+                        padding="8px",
+                        width="100%",
+                    ),
+                ),
+                rx.cond(
+                    State.file_picker_warning != "",
+                    rx.hstack(
+                        rx.icon("info", size=14),
+                        rx.text(State.file_picker_warning, size="1"),
+                        color="var(--amber-11)",
+                        background="var(--amber-3)",
+                        border="1px solid var(--amber-6)",
+                        border_radius="6px",
+                        padding="8px",
+                        width="100%",
+                    ),
+                ),
+                rx.scroll_area(
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell("Name"),
+                                rx.table.column_header_cell("Modified"),
+                                rx.table.column_header_cell("Size"),
+                                rx.table.column_header_cell(""),
+                            )
+                        ),
+                        rx.table.body(
+                            file_picker_parent_row(),
+                            rx.foreach(
+                                State.file_picker_entries,
+                                file_picker_entry_row,
+                            ),
+                        ),
+                        size="1",
+                        variant="surface",
+                        width="100%",
+                    ),
+                    height="360px",
+                    width="100%",
+                ),
+                rx.flex(
+                    rx.dialog.close(rx.button("Cancel", variant="soft")),
+                    rx.button(
+                        rx.cond(
+                            State.file_picker_mode == "load",
+                            "Load",
+                            "Save",
+                        ),
+                        on_click=State.confirm_file_picker,
+                        disabled=State.operation_kind != "",
+                    ),
+                    spacing="2",
+                    justify="end",
+                    width="100%",
+                ),
+                spacing="3",
+                align="stretch",
+            ),
+            max_width="820px",
+        ),
+        open=State.is_file_picker_open,
+        on_open_change=State.set_file_picker_open,
+    )
+
+
+def file_picker_overwrite_dialog() -> rx.Component:
+    """Render overwrite confirmation for file picker saves."""
+    return rx.alert_dialog.root(
+        rx.alert_dialog.content(
+            rx.alert_dialog.title("Overwrite existing network?"),
+            rx.alert_dialog.description(
+                "The selected save target already exists. Saving will replace PyPSA data at that location.",
+                size="2",
+                color_scheme="gray",
+            ),
+            rx.flex(
+                rx.alert_dialog.cancel(
+                    rx.button("Cancel", variant="soft", color_scheme="gray")
+                ),
+                rx.alert_dialog.action(
+                    rx.button(
+                        "Overwrite",
+                        color_scheme="red",
+                        on_click=State.confirm_file_picker_overwrite,
+                    )
+                ),
+                spacing="3",
+                justify="end",
+                width="100%",
+            ),
+            max_width="460px",
+        ),
+        open=State.is_file_picker_overwrite_dialog_open,
+        on_open_change=State.set_file_picker_overwrite_dialog_open,
+    )
 
 
 def load_network_dialog() -> rx.Component:

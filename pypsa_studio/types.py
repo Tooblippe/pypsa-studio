@@ -117,6 +117,16 @@ class ExampleNetworkGroup(TypedDict):
     networks: list[ExampleNetworkOption]
 
 
+class FilePickerEntry(TypedDict):
+    name: str
+    path: str
+    kind: str
+    icon: str
+    selectable: bool
+    modified: str
+    size: str
+
+
 class OtherTableCell(TypedDict):
     row_index: int
     column: str

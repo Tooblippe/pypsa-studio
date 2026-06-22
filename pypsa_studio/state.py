@@ -53,11 +53,12 @@ from pypsa_studio.constants import (
 )
 from pypsa_studio.network_model import (
     ComponentType,
-    LAYOUT_FILE_NAME,
     PypsaLoadedNetwork,
     PypsaNetworkModel,
-    export_diagram_to_csv_folder,
+    export_diagram_to_network_path,
+    layout_sidecar_path,
     load_pypsa_network,
+    normalize_network_export_format,
     pypsa_network_to_loaded_network,
     save_upload,
     save_uploads_as_csv_folder,
@@ -76,6 +77,7 @@ from pypsa_studio.types import (
     DiagramModel,
     DiagramNode,
     ExampleNetworkGroup,
+    FilePickerEntry,
     NetworkDataCell,
     NetworkDataColumn,
     NetworkDataRow,
@@ -116,6 +118,9 @@ CANVAS_REGION_NODE_SIZES = {
     "stores": (50.0, 72.0),
     "store": (50.0, 72.0),
 }
+FILE_PICKER_MAX_ENTRIES = 500
+FILE_PICKER_SAVE_FORMATS = {"csv", "netcdf", "hdf5"}
+FILE_PICKER_SUPPORTED_SUFFIXES = {".nc", ".h5", ".hdf5"}
 
 
 def clean_upload_staging_dir(upload_dir: str | Path) -> None:
@@ -445,6 +450,233 @@ def write_last_network_folder(csv_folder: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def network_save_format_for_path(network_path: str | Path) -> str:
+    """Infer the save format represented by a PyPSA network path."""
+    path = Path(network_path).expanduser()
+    if path.is_dir() or not path.suffix:
+        return "csv"
+    if path.suffix.lower() == ".nc":
+        return "netcdf"
+    if path.suffix.lower() in {".h5", ".hdf5"}:
+        return "hdf5"
+    return ""
+
+
+def file_picker_home_path() -> Path:
+    """Return the platform home path used as the picker starting location."""
+    try:
+        return Path.home().expanduser()
+    except RuntimeError:
+        return Path.cwd()
+
+
+def read_file_picker_last_path() -> Path:
+    """Read the last file picker path from settings.toml."""
+    try:
+        with open(SETTINGS_FILE, "rb") as fh:
+            data = tomllib.load(fh)
+    except OSError:
+        return file_picker_home_path()
+    except tomllib.TOMLDecodeError:
+        return file_picker_home_path()
+
+    path_text = str(data.get("FilePicker", {}).get("Last_path", "")).strip()
+    if not path_text:
+        return file_picker_home_path()
+    path = Path(path_text).expanduser()
+    if path.exists():
+        return path
+    return file_picker_home_path()
+
+
+def file_picker_start_dir() -> Path:
+    """Return the directory where the picker should initially open."""
+    last_path = read_file_picker_last_path()
+    if last_path.is_file():
+        return last_path.parent
+    if last_path.is_dir():
+        return last_path
+    return file_picker_home_path()
+
+
+def file_picker_root_entries() -> list[FilePickerEntry]:
+    """Return root locations available to the server-side file picker."""
+    roots: list[Path] = []
+    if sys.platform.startswith("win"):
+        for drive_code in range(ord("A"), ord("Z") + 1):
+            drive = Path(f"{chr(drive_code)}:/")
+            if drive.exists():
+                roots.append(drive)
+    else:
+        roots.append(Path("/"))
+
+    home = file_picker_home_path()
+    entries = [
+        {
+            "name": "Home",
+            "path": str(home),
+            "kind": "folder",
+            "icon": "home",
+            "selectable": False,
+            "modified": "",
+            "size": "",
+        }
+    ]
+    for root in roots:
+        entries.append(
+            {
+                "name": str(root),
+                "path": str(root),
+                "kind": "folder",
+                "icon": "hard-drive",
+                "selectable": False,
+                "modified": "",
+                "size": "",
+            }
+        )
+    return entries
+
+
+def format_file_picker_size(path: Path) -> str:
+    """Return a compact file size label for a picker row."""
+    if path.is_dir():
+        return ""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return ""
+
+
+def format_file_picker_modified(path: Path) -> str:
+    """Return a compact modified timestamp label for a picker row."""
+    try:
+        modified = path.stat().st_mtime
+    except OSError:
+        return ""
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(modified))
+
+
+def file_picker_entry_for_path(
+    path: Path, mode: str, save_format: str
+) -> FilePickerEntry:
+    """Build one file picker row for a filesystem path."""
+    is_directory = path.is_dir()
+    suffix = path.suffix.lower()
+    supported_file = suffix in FILE_PICKER_SUPPORTED_SUFFIXES
+    if is_directory:
+        selectable = mode == "load" or (
+            mode in {"save", "save_as"} and save_format == "csv"
+        )
+        kind = "folder"
+        icon = "folder"
+    else:
+        selectable = supported_file and (
+            mode == "load"
+            or (save_format == "netcdf" and suffix == ".nc")
+            or (save_format == "hdf5" and suffix in {".h5", ".hdf5"})
+        )
+        kind = "file"
+        icon = "file"
+
+    return {
+        "name": path.name or str(path),
+        "path": str(path),
+        "kind": kind,
+        "icon": icon,
+        "selectable": selectable,
+        "modified": format_file_picker_modified(path),
+        "size": format_file_picker_size(path),
+    }
+
+
+def scan_file_picker_directory(
+    directory: str | Path,
+    mode: str,
+    save_format: str,
+    show_hidden: bool = False,
+) -> tuple[list[FilePickerEntry], str, str]:
+    """Return visible picker entries, warning text, and error text for a directory."""
+    current_dir = Path(directory).expanduser()
+    try:
+        children = list(current_dir.iterdir())
+    except OSError as exc:
+        return [], "", f"Could not read {current_dir}: {exc}"
+
+    visible: list[Path] = []
+    for child in children:
+        if not show_hidden and child.name.startswith("."):
+            continue
+        if child.is_dir() or child.suffix.lower() in FILE_PICKER_SUPPORTED_SUFFIXES:
+            visible.append(child)
+
+    visible.sort(key=lambda path: (not path.is_dir(), path.name.lower()))
+    warning = ""
+    if len(visible) > FILE_PICKER_MAX_ENTRIES:
+        warning = f"Showing first {FILE_PICKER_MAX_ENTRIES} entries in this folder."
+        visible = visible[:FILE_PICKER_MAX_ENTRIES]
+
+    return (
+        [file_picker_entry_for_path(path, mode, save_format) for path in visible],
+        warning,
+        "",
+    )
+
+
+def default_save_file_name(network_name: str, save_format: str) -> str:
+    """Return a safe default file name for a network file save."""
+    safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", network_name or "network").strip("-.")
+    if not safe_stem:
+        safe_stem = "network"
+    if save_format == "netcdf":
+        return f"{safe_stem}.nc"
+    if save_format == "hdf5":
+        return f"{safe_stem}.h5"
+    return safe_stem
+
+
+def apply_save_format_extension(target_path: Path, save_format: str) -> Path:
+    """Ensure a file save path has the extension required by its selected format."""
+    if save_format == "netcdf" and target_path.suffix.lower() != ".nc":
+        return target_path.with_suffix(".nc")
+    if save_format == "hdf5" and target_path.suffix.lower() not in {".h5", ".hdf5"}:
+        return target_path.with_suffix(".h5")
+    return target_path
+
+
+def write_file_picker_last_path(path: str | Path) -> None:
+    """Persist the last file picker path to settings.toml."""
+    if not SETTINGS_FILE.exists():
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+        data: dict[str, dict[str, object]] = {}
+    else:
+        try:
+            with open(SETTINGS_FILE, "rb") as fh:
+                raw_data = tomllib.load(fh)
+        except OSError:
+            raw_data = {}
+        except tomllib.TOMLDecodeError:
+            raw_data = {}
+        data = {
+            str(section): {
+                str(key): value
+                for key, value in pairs.items()
+                if isinstance(pairs, dict)
+            }
+            for section, pairs in raw_data.items()
+            if isinstance(pairs, dict)
+        }
+
+    data.setdefault("FilePicker", {})["Last_path"] = str(Path(path).expanduser())
+    _write_toml_file(data)
 
 
 def _write_toml_file(data: dict[str, dict[str, object]]) -> None:
@@ -869,10 +1101,10 @@ def load_network_artifacts(network_path: str | Path) -> NetworkLoadArtifacts:
 
 
 def load_layout_positions(
-    csv_folder: Path,
+    network_path: Path,
 ) -> dict[tuple[str, str], dict[str, object]]:
     """Load saved builder canvas layout keyed by component and PyPSA name."""
-    layout_path = csv_folder / LAYOUT_FILE_NAME
+    layout_path = layout_sidecar_path(network_path)
     if not layout_path.exists():
         return {}
     try:
@@ -907,9 +1139,9 @@ def load_layout_positions(
     return positions
 
 
-def load_layout_regions(csv_folder: Path) -> list[CanvasRegion]:
+def load_layout_regions(network_path: Path) -> list[CanvasRegion]:
     """Load saved builder canvas regions from the layout sidecar."""
-    layout_path = csv_folder / LAYOUT_FILE_NAME
+    layout_path = layout_sidecar_path(network_path)
     if not layout_path.exists():
         return []
     try:
@@ -1576,6 +1808,8 @@ class State(rx.State):
     network_name: str = "Unnamed"
     network_file_path: str = ""
     save_network_folder: str = ""
+    save_network_path: str = ""
+    save_network_format: str = ""
     export_base_folder: str = str(Path.cwd() / "exports")
     export_message: str = ""
     export_error: str = ""
@@ -1586,6 +1820,22 @@ class State(rx.State):
     unsaved_network_action_payload: str = ""
     is_export_dialog_open: bool = False
     is_export_dialog_for_save: bool = False
+    is_file_picker_open: bool = False
+    file_picker_mode: str = "load"
+    file_picker_current_dir: str = str(file_picker_start_dir())
+    file_picker_path_input: str = str(file_picker_start_dir())
+    file_picker_entries: list[FilePickerEntry] = []
+    file_picker_roots: list[FilePickerEntry] = file_picker_root_entries()
+    file_picker_selected_path: str = ""
+    file_picker_target_name: str = ""
+    file_picker_save_format: str = "csv"
+    file_picker_show_hidden: bool = False
+    file_picker_error: str = ""
+    file_picker_warning: str = ""
+    file_picker_new_folder_name: str = ""
+    is_file_picker_overwrite_dialog_open: bool = False
+    pending_file_picker_target_path: str = ""
+    pending_file_picker_target_format: str = ""
     is_operation_dialog_open: bool = False
     operation_title: str = ""
     operation_status: str = ""
@@ -1631,6 +1881,8 @@ class State(rx.State):
         self.loaded_source = ""
         self.network_has_unsaved_changes = False
         self.save_network_folder = ""
+        self.save_network_path = ""
+        self.save_network_format = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
         self.is_network_data_dialog_open = False
@@ -1687,6 +1939,9 @@ Router_type = "Elk"
 Router_type_options = [
   "Elk"
 ]
+
+[FilePicker]
+Last_path = "~"
 """
         SETTINGS_FILE.write_text(default.lstrip("\n"), encoding="utf-8")
 
@@ -1942,7 +2197,9 @@ Router_type_options = [
         self, component_name: str
     ) -> OtherCsvTable:
         """Load a non-canvas component table from the current folder or PyPSA defaults."""
-        source_text = self.save_network_folder or self.loaded_source
+        source_text = (
+            self.save_network_path or self.save_network_folder or self.loaded_source
+        )
         if source_text:
             source = Path(source_text).expanduser()
             csv_path = source / network_data_file_name(component_name)
@@ -2823,6 +3080,8 @@ Router_type_options = [
         *,
         loaded_source: str = "",
         save_network_folder: str = "",
+        save_network_path: str = "",
+        save_network_format: str = "",
     ) -> tuple[pypsa.Network, PypsaLoadedNetwork]:
         """Apply centrally loaded network data and editable side tables to state."""
         network = artifacts["network"]
@@ -2830,6 +3089,8 @@ Router_type_options = [
         self.sections = model_sections(NETWORK_MODEL, loaded_network)
         self.loaded_source = loaded_source or loaded_network.source or ""
         self.save_network_folder = save_network_folder
+        self.save_network_path = save_network_path
+        self.save_network_format = save_network_format
         self.other_csv_tables = artifacts["other_csv_tables"]
         self.time_series_tables = artifacts["time_series_tables"]
         self.is_carrier_visibility_dialog_open = False
@@ -2937,19 +3198,28 @@ Router_type_options = [
             yield
 
             artifacts = await asyncio.to_thread(load_network_artifacts, path)
-            save_network_folder = str(path) if path.is_dir() else ""
+            save_format = network_save_format_for_path(path)
+            save_network_folder = str(path) if save_format == "csv" else ""
             network, _loaded_network = self._apply_network_load_artifacts(
                 artifacts,
                 loaded_source=str(path),
                 save_network_folder=save_network_folder,
+                save_network_path=str(path),
+                save_network_format=save_format,
             )
             self.network_name = str(network.name or path.stem or "Unnamed")
             self.operation_status = "Building canvas object..."
             self.network_load_status = self.operation_status
             yield
 
-            self._populate_canvas_from_network(network, trigger_route=False)
-            self._request_canvas_fit_view()
+            diagram_nodes, component_counters = await asyncio.to_thread(
+                build_canvas_nodes_from_network,
+                network,
+            )
+            layout_positions = await asyncio.to_thread(load_layout_positions, path)
+            layout_regions = await asyncio.to_thread(load_layout_regions, path)
+            apply_layout_positions(diagram_nodes, layout_positions)
+            self._apply_canvas_nodes(diagram_nodes, component_counters, layout_regions)
             self._mark_network_saved()
             self.load_message = f"Loaded {file_name} onto canvas."
             self.export_message = f"Loaded {file_name} onto canvas."
@@ -3042,12 +3312,25 @@ Router_type_options = [
         remember: bool = True,
     ):
         """Load a selected CSV folder using Reflex yield updates."""
-        csv_folder = selected_directory.expanduser()
+        async for _ in self._load_canvas_from_selected_network_path(
+            selected_directory,
+            remember=remember,
+        ):
+            yield
+
+    async def _load_canvas_from_selected_network_path(
+        self,
+        selected_path: Path,
+        remember: bool = True,
+    ):
+        """Load a selected PyPSA network path using Reflex yield updates."""
+        network_path = selected_path.expanduser()
         self.is_loading_network = True
         self.is_load_dialog_open = False
+        self.is_file_picker_open = False
         self.is_operation_dialog_open = True
         self.operation_title = "Loading network"
-        self.operation_status = "Importing selected folder..."
+        self.operation_status = "Importing selected network..."
         self.operation_kind = "load"
         self.operation_is_error = False
         self.operation_retry_load = False
@@ -3056,14 +3339,14 @@ Router_type_options = [
         self.export_error = ""
         yield
 
-        self.operation_status = f"Importing PyPSA CSV folder {csv_folder}..."
+        self.operation_status = f"Importing PyPSA network {network_path}..."
         self.network_load_status = self.operation_status
         yield
 
         try:
-            artifacts = await asyncio.to_thread(load_network_artifacts, csv_folder)
+            artifacts = await asyncio.to_thread(load_network_artifacts, network_path)
         except Exception as exc:
-            message = f"Could not import PyPSA CSV folder {csv_folder}: {exc}"
+            message = f"Could not import PyPSA network {network_path}: {exc}"
             self.load_error = message
             self.export_error = message
             self.is_loading_network = False
@@ -3076,12 +3359,16 @@ Router_type_options = [
             yield
             return
 
+        save_format = network_save_format_for_path(network_path)
+        save_folder = str(network_path) if save_format == "csv" else ""
         network, _loaded_network = self._apply_network_load_artifacts(
             artifacts,
-            loaded_source=str(csv_folder),
-            save_network_folder=str(csv_folder),
+            loaded_source=str(network_path),
+            save_network_folder=save_folder,
+            save_network_path=str(network_path),
+            save_network_format=save_format,
         )
-        self.network_name = str(network.name or csv_folder.name)
+        self.network_name = str(network.name or network_path.stem or network_path.name)
         print(network)
         self.operation_status = "Building canvas object..."
         self.network_load_status = self.operation_status
@@ -3091,12 +3378,12 @@ Router_type_options = [
             build_canvas_nodes_from_network,
             network,
         )
-        layout_positions = await asyncio.to_thread(load_layout_positions, csv_folder)
-        layout_regions = await asyncio.to_thread(load_layout_regions, csv_folder)
+        layout_positions = await asyncio.to_thread(load_layout_positions, network_path)
+        layout_regions = await asyncio.to_thread(load_layout_regions, network_path)
         apply_layout_positions(diagram_nodes, layout_positions)
         self._apply_canvas_nodes(diagram_nodes, component_counters, layout_regions)
-        if remember and is_pypsa_csv_folder(csv_folder):
-            await asyncio.to_thread(write_last_network_folder, csv_folder)
+        if remember and is_pypsa_csv_folder(network_path):
+            await asyncio.to_thread(write_last_network_folder, network_path)
         yield
 
         if not any(
@@ -3104,8 +3391,8 @@ Router_type_options = [
             for node in self.diagram_nodes
         ):
             self.operation_status = "Network loaded with no visible canvas components."
-            self.load_message = f"Loaded {csv_folder} onto canvas."
-            self.export_message = f"Loaded network folder {csv_folder} onto canvas."
+            self.load_message = f"Loaded {network_path} onto canvas."
+            self.export_message = f"Loaded network {network_path} onto canvas."
             self.load_error = ""
             self.export_error = ""
             self.is_loading_network = False
@@ -3117,8 +3404,8 @@ Router_type_options = [
             yield
             return
 
-        self.load_message = f"Loaded {csv_folder} onto canvas."
-        self.export_message = f"Loaded network folder {csv_folder} onto canvas."
+        self.load_message = f"Loaded {network_path} onto canvas."
+        self.export_message = f"Loaded network {network_path} onto canvas."
         self.load_error = ""
         self.export_error = ""
         self.is_loading_network = False
@@ -3332,6 +3619,8 @@ Router_type_options = [
         self.network_name = "Unnamed"
         self.loaded_source = ""
         self.save_network_folder = ""
+        self.save_network_path = ""
+        self.save_network_format = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
         self.is_carrier_visibility_dialog_open = False
@@ -3342,6 +3631,9 @@ Router_type_options = [
         self.load_error = ""
         self.export_message = ""
         self.export_error = ""
+        self.is_file_picker_open = False
+        self.is_file_picker_overwrite_dialog_open = False
+        self.file_picker_selected_path = ""
         self.network_has_unsaved_changes = False
         if self.is_network_data_dialog_open:
             self._sync_network_data_dialog()
@@ -3355,6 +3647,8 @@ Router_type_options = [
         self.loaded_source = ""
         self.network_has_unsaved_changes = False
         self.save_network_folder = ""
+        self.save_network_path = ""
+        self.save_network_format = ""
         self.other_csv_tables = {}
         self.time_series_tables = {}
         self.is_carrier_visibility_dialog_open = False
@@ -3368,6 +3662,9 @@ Router_type_options = [
         self.is_network_name_dialog_open = False
         self.is_load_dialog_open = False
         self.is_export_dialog_open = False
+        self.is_file_picker_open = False
+        self.is_file_picker_overwrite_dialog_open = False
+        self.file_picker_selected_path = ""
         self.is_operation_dialog_open = False
         self.operation_title = ""
         self.operation_status = ""
@@ -3413,7 +3710,9 @@ Router_type_options = [
 
     def _current_saved_network_path(self) -> Path | None:
         """Return the current on-disk network source, if one exists."""
-        source_text = (self.save_network_folder or self.loaded_source).strip()
+        source_text = (
+            self.save_network_path or self.save_network_folder or self.loaded_source
+        ).strip()
         if not source_text:
             return None
         return Path(source_text).expanduser()
@@ -3777,11 +4076,13 @@ Router_type_options = [
         action: str,
         payload: str = "",
     ) -> None:
+        """Store a pending network action blocked by unsaved changes."""
         self.unsaved_network_action = action
         self.unsaved_network_action_payload = payload
         self.is_unsaved_changes_dialog_open = True
 
     async def _run_pending_network_action(self):
+        """Run the pending network action after unsaved changes are handled."""
         action = self.unsaved_network_action
         payload = self.unsaved_network_action_payload
         self.unsaved_network_action = ""
@@ -3790,7 +4091,7 @@ Router_type_options = [
             self.new_network()
             self.open_network_name_dialog()
         elif action == "load_network_directory":
-            self.is_load_dialog_open = True
+            self.open_file_picker("load")
         elif action == "load_pypsa_example_network":
             async for _ in self.load_pypsa_example_network(payload):
                 yield
@@ -3804,11 +4105,11 @@ Router_type_options = [
         self.open_network_name_dialog()
 
     def request_load_network_directory_to_canvas(self) -> None:
-        """Open the local path load dialog or ask to handle unsaved changes first."""
+        """Open the local network picker or ask to handle unsaved changes first."""
         if self._has_unsaved_network_changes():
             self._set_unsaved_network_action("load_network_directory")
             return
-        self.is_load_dialog_open = True
+        self.open_file_picker("load")
 
     async def request_load_pypsa_example_network(self, network_path: str):
         """Load a bundled example network or ask to handle unsaved changes first."""
@@ -3840,8 +4141,262 @@ Router_type_options = [
 
     async def choose_network_directory_and_load(self):
         """Open the web dialog for loading a local CSV folder path."""
-        self.is_load_dialog_open = True
+        self.open_file_picker("load")
         yield
+
+    def open_file_picker(self, mode: str) -> None:
+        """Open the server-side network file picker in the requested mode."""
+        normalized_mode = str(mode or "load")
+        if normalized_mode not in {"load", "save", "save_as"}:
+            normalized_mode = "load"
+        self.file_picker_mode = normalized_mode
+        self.file_picker_save_format = (
+            self.save_network_format
+            if normalized_mode == "save" and self.save_network_format
+            else "csv"
+        )
+        if self.file_picker_save_format not in FILE_PICKER_SAVE_FORMATS:
+            self.file_picker_save_format = "csv"
+        start_dir = Path(self.file_picker_current_dir or file_picker_start_dir())
+        if normalized_mode in {"save", "save_as"}:
+            current_target = (
+                Path(self.save_network_path).expanduser()
+                if self.save_network_path
+                else None
+            )
+            if current_target is not None and current_target.parent.exists():
+                start_dir = (
+                    current_target if current_target.is_dir() else current_target.parent
+                )
+        if not start_dir.exists() or not start_dir.is_dir():
+            start_dir = file_picker_start_dir()
+            if not start_dir.exists() or not start_dir.is_dir():
+                start_dir = file_picker_home_path()
+        self.file_picker_current_dir = str(start_dir)
+        self.file_picker_path_input = str(start_dir)
+        self.file_picker_selected_path = ""
+        self.file_picker_target_name = default_save_file_name(
+            self.network_name,
+            self.file_picker_save_format,
+        )
+        self.file_picker_new_folder_name = ""
+        self.file_picker_error = ""
+        self.file_picker_warning = ""
+        self.is_file_picker_overwrite_dialog_open = False
+        self.pending_file_picker_target_path = ""
+        self.pending_file_picker_target_format = ""
+        self.refresh_file_picker_entries()
+        self.is_file_picker_open = True
+
+    def refresh_file_picker_entries(self) -> None:
+        """Reload entries for the current file picker directory."""
+        entries, warning, error = scan_file_picker_directory(
+            self.file_picker_current_dir,
+            self.file_picker_mode,
+            self.file_picker_save_format,
+            self.file_picker_show_hidden,
+        )
+        self.file_picker_entries = entries
+        self.file_picker_warning = warning
+        self.file_picker_error = error
+        self.file_picker_roots = file_picker_root_entries()
+
+    def _persist_file_picker_path(self, path: str | Path) -> None:
+        """Persist the file picker path without interrupting picker navigation."""
+        try:
+            write_file_picker_last_path(path)
+        except OSError as exc:
+            self.file_picker_warning = f"Could not persist picker path: {exc}"
+
+    def set_file_picker_open(self, value: bool) -> None:
+        """Update whether the file picker dialog is open."""
+        self.is_file_picker_open = value
+        if not value:
+            self.file_picker_error = ""
+            self.file_picker_warning = ""
+            self.file_picker_selected_path = ""
+
+    def set_file_picker_path_input(self, value: str) -> None:
+        """Update the editable picker path bar."""
+        self.file_picker_path_input = value
+
+    def set_file_picker_target_name(self, value: str) -> None:
+        """Update the save target file or folder name."""
+        self.file_picker_target_name = value
+
+    def set_file_picker_new_folder_name(self, value: str) -> None:
+        """Update the new folder name field."""
+        self.file_picker_new_folder_name = value
+
+    def set_file_picker_show_hidden(self, value: bool) -> None:
+        """Toggle hidden file visibility in the picker."""
+        self.file_picker_show_hidden = bool(value)
+        self.refresh_file_picker_entries()
+
+    def set_file_picker_save_format(self, value: str) -> None:
+        """Update the picker save format and default target name."""
+        next_format = str(value or "csv").strip().lower()
+        if next_format not in FILE_PICKER_SAVE_FORMATS:
+            next_format = "csv"
+        self.file_picker_save_format = next_format
+        self.file_picker_selected_path = ""
+        self.file_picker_target_name = default_save_file_name(
+            self.network_name,
+            next_format,
+        )
+        self.refresh_file_picker_entries()
+
+    def navigate_file_picker_to_path(self, path_text: str) -> None:
+        """Navigate the picker to a directory path."""
+        target = Path(str(path_text or "")).expanduser()
+        if not target.exists():
+            self.file_picker_error = f"Path does not exist: {target}"
+            return
+        if target.is_file():
+            target = target.parent
+        if not target.is_dir():
+            self.file_picker_error = f"Path is not a directory: {target}"
+            return
+        self.file_picker_current_dir = str(target)
+        self.file_picker_path_input = str(target)
+        self.file_picker_selected_path = ""
+        self.file_picker_error = ""
+        self.refresh_file_picker_entries()
+        self._persist_file_picker_path(target)
+
+    def navigate_file_picker_from_input(self) -> None:
+        """Navigate the picker using the path bar value."""
+        self.navigate_file_picker_to_path(self.file_picker_path_input)
+
+    def navigate_file_picker_parent(self) -> None:
+        """Navigate the picker to the current directory's parent."""
+        current = Path(self.file_picker_current_dir).expanduser()
+        parent = current.parent
+        if parent == current:
+            return
+        self.navigate_file_picker_to_path(str(parent))
+
+    def select_file_picker_path(self, path_text: str) -> None:
+        """Select a file or folder as the pending picker target."""
+        target = Path(str(path_text)).expanduser()
+        self.file_picker_selected_path = str(target)
+        if self.file_picker_mode in {"save", "save_as"} and target.is_file():
+            self.file_picker_current_dir = str(target.parent)
+            self.file_picker_path_input = str(target.parent)
+            self.file_picker_target_name = target.name
+        self.file_picker_error = ""
+        self._persist_file_picker_path(target)
+
+    def create_file_picker_folder(self) -> None:
+        """Create a child folder in the current picker directory."""
+        if self.file_picker_mode not in {"save", "save_as"}:
+            return
+        folder_name = self.file_picker_new_folder_name.strip()
+        if not folder_name:
+            self.file_picker_error = "Enter a folder name first."
+            return
+        folder_path = Path(folder_name)
+        if folder_path.is_absolute() or ".." in folder_path.parts:
+            self.file_picker_error = "Use a simple folder name without '..'."
+            return
+        target = Path(self.file_picker_current_dir).expanduser() / folder_path
+        try:
+            target.mkdir(parents=True, exist_ok=False)
+        except OSError as exc:
+            self.file_picker_error = f"Could not create folder: {exc}"
+            return
+        self.file_picker_new_folder_name = ""
+        self.file_picker_error = ""
+        self.refresh_file_picker_entries()
+
+    def _selected_file_picker_save_target(self) -> tuple[Path, str]:
+        """Return the picker save target path and format."""
+        save_format = self.file_picker_save_format
+        if save_format not in FILE_PICKER_SAVE_FORMATS:
+            save_format = "csv"
+        if save_format == "csv":
+            selected = self.file_picker_selected_path.strip()
+            target = (
+                Path(selected).expanduser()
+                if selected
+                else Path(self.file_picker_current_dir).expanduser()
+            )
+            return target, save_format
+
+        target_name = self.file_picker_target_name.strip()
+        if not target_name:
+            raise ValueError("Enter a file name before saving.")
+        target_path = Path(target_name).expanduser()
+        if not target_path.is_absolute():
+            target_path = Path(self.file_picker_current_dir).expanduser() / target_path
+        return apply_save_format_extension(target_path, save_format), save_format
+
+    def _selected_file_picker_load_target(self) -> Path:
+        """Return the picker load target path."""
+        selected = self.file_picker_selected_path.strip()
+        if selected:
+            return Path(selected).expanduser()
+        path_input = Path(self.file_picker_path_input).expanduser()
+        if path_input.exists():
+            return path_input
+        raise ValueError("Select a PyPSA network folder or supported file.")
+
+    def _save_target_requires_confirmation(
+        self, target_path: Path, save_format: str
+    ) -> bool:
+        """Return whether saving to the target should ask for overwrite confirmation."""
+        if save_format == "csv":
+            if not target_path.exists():
+                return False
+            if not target_path.is_dir():
+                return True
+            return any(target_path.iterdir())
+        return target_path.exists()
+
+    async def confirm_file_picker(self):
+        """Run the load or save action selected in the file picker."""
+        try:
+            if self.file_picker_mode == "load":
+                target_path = self._selected_file_picker_load_target()
+                self._persist_file_picker_path(target_path)
+                self.is_file_picker_open = False
+                async for _ in self._load_canvas_from_selected_network_path(
+                    target_path
+                ):
+                    yield
+                return
+
+            target_path, save_format = self._selected_file_picker_save_target()
+            if self._save_target_requires_confirmation(target_path, save_format):
+                self.pending_file_picker_target_path = str(target_path)
+                self.pending_file_picker_target_format = save_format
+                self.is_file_picker_overwrite_dialog_open = True
+                yield
+                return
+            self._persist_file_picker_path(target_path)
+            async for _ in self._save_canvas_network_to_path(target_path, save_format):
+                yield
+        except Exception as exc:
+            self.file_picker_error = str(exc)
+            yield
+
+    def set_file_picker_overwrite_dialog_open(self, value: bool) -> None:
+        """Update whether the picker overwrite confirmation is open."""
+        self.is_file_picker_overwrite_dialog_open = value
+        if not value:
+            self.pending_file_picker_target_path = ""
+            self.pending_file_picker_target_format = ""
+
+    async def confirm_file_picker_overwrite(self):
+        """Save to the pending picker target after overwrite confirmation."""
+        target_path = Path(self.pending_file_picker_target_path).expanduser()
+        save_format = self.pending_file_picker_target_format
+        self.is_file_picker_overwrite_dialog_open = False
+        self.pending_file_picker_target_path = ""
+        self.pending_file_picker_target_format = ""
+        self._persist_file_picker_path(target_path)
+        async for _ in self._save_canvas_network_to_path(target_path, save_format):
+            yield
 
     def arm_branch_component(self, component_name: str) -> None:
         """Arm or disarm a branch component type for bus-to-bus creation."""
@@ -3951,9 +4506,8 @@ Router_type_options = [
             self.is_export_dialog_for_save = False
 
     async def choose_export_folder(self):
-        """Open the web dialog for setting the export destination path."""
-        self.is_export_dialog_for_save = False
-        self.is_export_dialog_open = True
+        """Open the network Save As picker."""
+        self.open_file_picker("save_as")
         yield
 
     async def choose_export_folder_and_export(self):
@@ -3987,24 +4541,55 @@ Router_type_options = [
             yield
 
     async def save_canvas_network_to_loaded_folder(self):
-        """Save the current diagram model back to the loaded PyPSA CSV folder."""
+        """Save the current diagram model back to the current network target."""
         if not self.diagram_nodes:
             self.export_error = "Add at least one component before saving."
             self.export_message = ""
             yield
             return
-        if not self.save_network_folder:
-            self.is_export_dialog_for_save = True
-            self.is_export_dialog_open = True
+        if not self.save_network_path:
+            self.open_file_picker("save")
+            yield
+            return
+
+        save_format = self.save_network_format or network_save_format_for_path(
+            self.save_network_path
+        )
+        async for _ in self._save_canvas_network_to_path(
+            Path(self.save_network_path),
+            save_format,
+        ):
+            yield
+
+    async def _save_canvas_network_to_path(
+        self,
+        target_path: Path,
+        save_format: str,
+    ):
+        """Save the current diagram model to a PyPSA network path."""
+        if not self.diagram_nodes:
+            self.export_error = "Add at least one component before saving."
+            self.export_message = ""
+            yield
+            return
+
+        normalized_format = normalize_network_export_format(save_format, target_path)
+        if (
+            normalized_format == "csv"
+            and target_path.exists()
+            and not target_path.is_dir()
+        ):
+            self.export_error = "CSV folder exports require a directory target."
+            self.export_message = ""
+            self.show_operation_error("Could not save network", self.export_error)
             yield
             return
 
         self.is_operation_dialog_open = True
         self.is_export_dialog_open = False
+        self.is_file_picker_open = False
         self.operation_title = "Saving network"
-        self.operation_status = (
-            f"Writing PyPSA CSV files to {self.save_network_folder}..."
-        )
+        self.operation_status = f"Writing PyPSA network to {target_path}..."
         self.operation_kind = "save"
         self.operation_is_error = False
         self.operation_retry_load = False
@@ -4015,17 +4600,21 @@ Router_type_options = [
         try:
             extra_csv_tables = self._extra_csv_tables_for_export()
             export_path = await asyncio.to_thread(
-                export_diagram_to_csv_folder,
+                export_diagram_to_network_path,
                 self.diagram_model,
                 NETWORK_MODEL,
-                self.save_network_folder,
-                "",
+                target_path,
+                normalized_format,
                 self.network_name,
-                self.save_network_folder,
+                str(target_path) if normalized_format == "csv" else None,
                 extra_csv_tables,
             )
             self.loaded_source = str(export_path)
-            self.save_network_folder = str(export_path)
+            self.save_network_path = str(export_path)
+            self.save_network_format = normalized_format
+            self.save_network_folder = (
+                str(export_path) if normalized_format == "csv" else ""
+            )
             self._mark_network_saved()
             self.export_message = f"Saved network to {export_path}."
             self.export_error = ""
@@ -4035,7 +4624,7 @@ Router_type_options = [
             self.operation_kind = ""
             self.operation_is_error = False
             self.operation_retry_load = False
-            yield rx.toast.success(f"Saved PyPSA CSV folder to {export_path}.")
+            yield rx.toast.success(f"Saved PyPSA network to {export_path}.")
         except Exception as exc:
             self.export_error = f"Could not save network: {exc}"
             self.export_message = ""
@@ -4055,6 +4644,8 @@ Router_type_options = [
                 self.export_message = ""
                 return
             self.save_network_folder = selected_folder
+            self.save_network_path = selected_folder
+            self.save_network_format = "csv"
             async for _ in self.save_canvas_network_to_loaded_folder():
                 yield
             return
@@ -4083,17 +4674,19 @@ Router_type_options = [
         try:
             extra_csv_tables = self._extra_csv_tables_for_export()
             export_path = await asyncio.to_thread(
-                export_diagram_to_csv_folder,
+                export_diagram_to_network_path,
                 self.diagram_model,
                 NETWORK_MODEL,
                 self.export_base_folder,
-                "",
+                "csv",
                 self.network_name,
                 self.save_network_folder or None,
                 extra_csv_tables,
             )
             self.loaded_source = str(export_path)
             self.save_network_folder = str(export_path)
+            self.save_network_path = str(export_path)
+            self.save_network_format = "csv"
             self._mark_network_saved()
             self.operation_status = "Network saved."
             self.export_message = ""

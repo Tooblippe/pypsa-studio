@@ -328,7 +328,7 @@ def shortcut_actions() -> rx.Component:
             id="network-save-shortcut",
             on_click=State.save_canvas_network_to_loaded_folder,
             disabled=rx.cond(
-                State.save_network_folder != "",
+                State.save_network_path != "",
                 State.operation_kind == "save",
                 True,
             ),

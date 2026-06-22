@@ -33,8 +33,76 @@ def export_diagram_to_csv_folder(
         _prepare_export_folder(target_folder)
         network.export_to_csv_folder(target_folder)
     _write_extra_csv_tables(target_folder, extra_csv_tables or {})
-    _write_layout_sidecar(target_folder, diagram_model)
+    _write_layout_sidecar(layout_sidecar_path(target_folder), diagram_model)
     return target_folder
+
+
+def export_diagram_to_network_path(
+    diagram_model: dict[str, Any],
+    network_model: PypsaNetworkModel,
+    target_path: str | Path,
+    export_format: str,
+    network_name: str | None = None,
+    preserve_source_folder: str | Path | None = None,
+    extra_csv_tables: dict[str, dict[str, Any]] | None = None,
+) -> Path:
+    """Build a PyPSA network from diagram data and export it to the requested path."""
+    normalized_format = normalize_network_export_format(export_format, target_path)
+    path = Path(target_path).expanduser()
+
+    if normalized_format == "csv":
+        return export_diagram_to_csv_folder(
+            diagram_model,
+            network_model,
+            path,
+            "",
+            network_name,
+            preserve_source_folder,
+            extra_csv_tables,
+        )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    network = diagram_to_pypsa_network(diagram_model, network_model, network_name)
+    network = _network_with_extra_csv_tables(network, extra_csv_tables or {})
+    if normalized_format == "netcdf":
+        network.export_to_netcdf(path)
+    elif normalized_format == "hdf5":
+        network.export_to_hdf5(path)
+    else:
+        raise ValueError(f"Unsupported export format: {export_format}")
+    _write_layout_sidecar(layout_sidecar_path(path), diagram_model)
+    return path
+
+
+def normalize_network_export_format(
+    export_format: str,
+    target_path: str | Path,
+) -> str:
+    """Return the canonical PyPSA export format for a target path."""
+    format_text = str(export_format or "").strip().lower()
+    if format_text in {"csv", "folder", "csv_folder", "csv-folder"}:
+        return "csv"
+    if format_text in {"netcdf", "nc"}:
+        return "netcdf"
+    if format_text in {"hdf5", "h5", "hdf"}:
+        return "hdf5"
+
+    suffix = Path(target_path).suffix.lower()
+    if suffix == ".nc":
+        return "netcdf"
+    if suffix in {".h5", ".hdf5"}:
+        return "hdf5"
+    if not suffix:
+        return "csv"
+    raise ValueError(f"Unsupported export format for {target_path}.")
+
+
+def layout_sidecar_path(network_path: str | Path) -> Path:
+    """Return the builder layout sidecar path for a folder or network file."""
+    path = Path(network_path).expanduser()
+    if path.is_dir() or not path.suffix:
+        return path / LAYOUT_FILE_NAME
+    return path.with_name(f"{path.name}.{LAYOUT_FILE_NAME}")
 
 
 def diagram_to_pypsa_network(
@@ -187,8 +255,24 @@ def _write_extra_csv_tables(
         data_frame.to_csv(target_folder / file_name)
 
 
+def _network_with_extra_csv_tables(
+    network: pypsa.Network,
+    extra_csv_tables: dict[str, dict[str, Any]],
+) -> pypsa.Network:
+    """Overlay editable CSV side tables onto a network before file export."""
+    if not extra_csv_tables:
+        return network
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        export_dir = Path(tmp_dir) / "network"
+        network.export_to_csv_folder(export_dir)
+        _write_extra_csv_tables(export_dir, extra_csv_tables)
+        enriched_network = pypsa.Network()
+        enriched_network.import_from_csv_folder(export_dir)
+        return enriched_network
+
+
 def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) -> None:
-    """Write builder-only canvas positions next to the PyPSA CSV files."""
+    """Write builder-only canvas positions next to the PyPSA network export."""
     positions: list[dict[str, Any]] = []
     regions: list[dict[str, Any]] = []
     for component in diagram_model.get("components", []):
@@ -253,8 +337,8 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
             }
         )
 
-    target_folder.mkdir(parents=True, exist_ok=True)
-    (target_folder / LAYOUT_FILE_NAME).write_text(
+    target_folder.parent.mkdir(parents=True, exist_ok=True)
+    target_folder.write_text(
         json.dumps(
             {"version": 3, "positions": positions, "regions": regions},
             indent=2,
