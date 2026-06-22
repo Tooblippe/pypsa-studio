@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "positions": [
     {
       "component": "buses",
@@ -177,7 +177,7 @@
     {
       "component": "global_constraints",
       "id": "global_constraint_1",
-      "name": "global_constraint_1",
+      "name": "aa",
       "x": 652.0,
       "y": 425.3333333333334,
       "bus_side": "right",
@@ -262,5 +262,6 @@
       "y": 554.0000000000001,
       "bus_side": "right"
     }
-  ]
+  ],
+  "regions": []
 }

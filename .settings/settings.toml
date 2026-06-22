@@ -1,5 +1,5 @@
 [Theme]
-mode = "Dark"
+mode = "Light"
 mode_options = [
   "Light",
   "Dark"
@@ -20,4 +20,94 @@ Voltage_type_options = [
 ]
 
 [FilePicker]
-Last_path = "C:\\Users\\tobie\\PycharmProjects\\pypsa-network-builder-v2\\test_networks\\pypsa_examples\\ac-dc-meshed"
+Last_path = "C:\\Users\\tobie\\PycharmProjects\\pypsa-network-builder-v2\\test_networks\\debug_network\\debug"
+
+[[network_data.components]]
+component = "snapshots"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "investment_periods"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "global_constraints"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "carriers"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "buses"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "generators"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "lines"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "links"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "loads"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "storage_units"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "stores"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "transformers"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "shunt_impedances"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "processes"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "sub_networks"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "shapes"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "line_types"
+show_in_editor = true
+show_on_sld = true
+
+[[network_data.components]]
+component = "transformer_types"
+show_in_editor = true
+show_on_sld = true

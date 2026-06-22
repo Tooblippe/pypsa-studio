@@ -4,7 +4,6 @@ import reflex as rx
 
 from pypsa_studio.state import State
 from pypsa_studio.ui.builder import builder_tab
-from pypsa_studio.ui.catalog import catalog_tab, debug_network_tab
 from pypsa_studio.ui.dialogs import (
     carrier_visibility_dialog,
     clear_canvas_dialog,
@@ -13,7 +12,7 @@ from pypsa_studio.ui.dialogs import (
     file_picker_overwrite_dialog,
     load_network_dialog,
     mark_region_dialog,
-    network_data_dialog,
+    network_data_view,
     network_name_dialog,
     operation_dialog,
     other_component_dialog,
@@ -42,40 +41,56 @@ def index() -> rx.Component:
         export_network_dialog(),
         other_component_dialog(),
         time_series_plot_dialog(),
-        network_data_dialog(),
         settings_dialog(),
         menu_bar(),
         rx.box(
-            rx.cond(
-                State.active_view == "debug-network",
-                rx.box(
-                    debug_network_tab(),
-                    height="100%",
-                    min_height="0",
-                    overflow_y="auto",
+            rx.box(
+                builder_tab(),
+                position="absolute",
+                inset="0",
+                padding="10px",
+                height="100%",
+                min_height="0",
+                display="flex",
+                flex_direction="column",
+                overflow="hidden",
+                opacity=rx.cond(
+                    State.active_view == "network-data",
+                    "0",
+                    "1",
                 ),
-                rx.cond(
-                    State.active_view == "catalog",
-                    rx.box(
-                        catalog_tab(),
-                        height="100%",
-                        min_height="0",
-                        overflow_y="auto",
-                    ),
-                    rx.box(
-                        builder_tab(),
-                        height="100%",
-                        min_height="0",
-                        display="flex",
-                        flex_direction="column",
-                        overflow="hidden",
-                    ),
+                pointer_events=rx.cond(
+                    State.active_view == "network-data",
+                    "none",
+                    "auto",
                 ),
+                z_index=rx.cond(State.active_view == "network-data", "0", "1"),
             ),
+            rx.box(
+                network_data_view(),
+                position="absolute",
+                inset="0",
+                padding="10px",
+                height="100%",
+                min_height="0",
+                overflow="hidden",
+                background="var(--color-panel-solid)",
+                opacity=rx.cond(
+                    State.active_view == "network-data",
+                    "1",
+                    "0",
+                ),
+                pointer_events=rx.cond(
+                    State.active_view == "network-data",
+                    "auto",
+                    "none",
+                ),
+                z_index=rx.cond(State.active_view == "network-data", "2", "0"),
+            ),
+            position="relative",
             flex="1",
             min_height="0",
             width="100%",
-            padding="10px",
             overflow="hidden",
             class_name="app-content",
         ),

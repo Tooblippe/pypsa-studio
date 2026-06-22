@@ -18,3 +18,4 @@ reflex.lock
 uploaded_files
 uv.lock
 .uv-cache
+test_networks/internal_networks

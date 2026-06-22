@@ -29,6 +29,48 @@ def demo_styles() -> rx.Component:
           .app-content {
             background: var(--gray-4);
           }
+          .network-data-grid {
+            border-collapse: collapse !important;
+            border-spacing: 0 !important;
+            table-layout: auto !important;
+            width: max-content !important;
+            min-width: max-content !important;
+          }
+          .network-data-grid :where(th, td) {
+            padding: 0 !important;
+            border: 1px solid var(--gray-5) !important;
+            background: var(--color-panel-solid);
+          }
+          .network-data-grid :where(th) {
+            padding: 5px 8px !important;
+            background: var(--gray-2);
+          }
+          .network-data-grid :where(.network-data-control, input.network-data-control, button.network-data-control) {
+            width: auto !important;
+            min-width: 72px !important;
+            max-width: none !important;
+            height: 30px !important;
+            min-height: 30px !important;
+            margin: 0 !important;
+            padding: 3px 8px !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            outline: none !important;
+            field-sizing: content;
+          }
+          .network-data-grid :where(.network-data-control:focus, .network-data-control:focus-visible, .network-data-control[data-state="open"]) {
+            box-shadow: 0 0 0 2px var(--accent-7) inset !important;
+            background: var(--accent-2) !important;
+          }
+          .network-data-grid :where(.network-data-number) {
+            text-align: right !important;
+            font-variant-numeric: tabular-nums;
+          }
+          .network-data-grid :where(td > div) {
+            gap: 0 !important;
+          }
           .builder-shell {
             border-color: color-mix(in srgb, var(--gray-7) 72%, transparent) !important;
             border-radius: 10px !important;

@@ -9,6 +9,7 @@ from pypsa_studio.types import (
     FilePickerEntry,
     NetworkDataCell,
     NetworkDataColumn,
+    NetworkDataComponentSetting,
     NetworkDataRow,
     NetworkDataTab,
     OtherTableCell,
@@ -724,7 +725,7 @@ def network_data_header_cell(column: rx.Var[NetworkDataColumn]) -> rx.Component:
             spacing="1",
             align="center",
         ),
-        min_width="170px",
+        padding="4px 6px",
         white_space="nowrap",
     )
 
@@ -737,7 +738,12 @@ def network_data_option_item(option: rx.Var[str]) -> rx.Component:
 def network_data_bus_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
     """Render a bus reference selector in the Network Data grid."""
     return rx.select.root(
-        rx.select.trigger(placeholder="Select bus", width="100%"),
+        rx.select.trigger(
+            placeholder="Select bus",
+            width="100%",
+            height="28px",
+            class_name="network-data-control",
+        ),
         rx.select.content(
             rx.select.group(
                 rx.foreach(State.canvas_bus_names, network_data_option_item),
@@ -758,7 +764,12 @@ def network_data_bus_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
 def network_data_option_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
     """Render an option selector in the Network Data grid."""
     return rx.select.root(
-        rx.select.trigger(placeholder="Select value", width="100%"),
+        rx.select.trigger(
+            placeholder="Select value",
+            width="100%",
+            height="28px",
+            class_name="network-data-control",
+        ),
         rx.select.content(
             rx.select.group(
                 rx.foreach(cell["options"], network_data_option_item),
@@ -779,8 +790,8 @@ def network_data_option_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
 def network_data_text_input(cell: rx.Var[NetworkDataCell]) -> rx.Component:
     """Render a text/number input in the Network Data grid."""
     return rx.input(
-        value=cell["value"].to(str),
-        type=rx.cond(cell["input_type"] == "number", "number", "text"),
+        value=cell["display_value"].to(str),
+        type="text",
         on_change=lambda value: State.update_network_data_cell(
             cell["component"],
             cell["row_id"],
@@ -794,7 +805,13 @@ def network_data_text_input(cell: rx.Var[NetworkDataCell]) -> rx.Component:
             value,
         ),
         width="100%",
-        min_width="150px",
+        height="28px",
+        size="2",
+        class_name=rx.cond(
+            cell["input_type"] == "number",
+            "network-data-control network-data-number",
+            "network-data-control",
+        ),
     )
 
 
@@ -860,15 +877,16 @@ def network_data_cell(cell: rx.Var[NetworkDataCell]) -> rx.Component:
                         "blue",
                     ),
                     size="1",
+                    height="24px",
                     flex_shrink="0",
                 ),
                 rx.fragment(),
             ),
-            spacing="2",
+            spacing="1",
             align="center",
             width="100%",
         ),
-        min_width="190px",
+        padding="4px 6px",
     )
 
 
@@ -886,9 +904,11 @@ def network_data_row(row: rx.Var[NetworkDataRow]) -> rx.Component:
                     value,
                 ),
                 width="100%",
-                min_width="180px",
+                height="28px",
+                size="2",
+                class_name="network-data-control",
             ),
-            min_width="190px",
+            padding="4px 6px",
             position="sticky",
             left="0",
             background="var(--color-panel-solid)",
@@ -901,14 +921,14 @@ def network_data_row(row: rx.Var[NetworkDataRow]) -> rx.Component:
 def network_data_table(tab: rx.Var[NetworkDataTab]) -> rx.Component:
     """Render one Network Data component table."""
     return rx.vstack(
-        rx.text(
-            rx.cond(
-                tab["row_count"] == 0,
+        rx.cond(
+            tab["row_count"] == 0,
+            rx.text(
                 "No rows for this component.",
-                "",
+                size="2",
+                color_scheme="gray",
             ),
-            size="2",
-            color_scheme="gray",
+            rx.fragment(),
         ),
         rx.box(
             rx.table.root(
@@ -916,29 +936,35 @@ def network_data_table(tab: rx.Var[NetworkDataTab]) -> rx.Component:
                     rx.table.row(
                         rx.table.column_header_cell(
                             "Name",
-                            min_width="190px",
                             position="sticky",
                             left="0",
                             background="var(--color-panel-solid)",
                             z_index="2",
+                            padding="4px 6px",
                         ),
                         rx.foreach(tab["columns"], network_data_header_cell),
                     ),
                 ),
                 rx.table.body(rx.foreach(tab["rows"], network_data_row)),
                 variant="surface",
-                size="2",
-                width="100%",
+                size="1",
+                width="max-content",
                 min_width="max-content",
+                class_name="network-data-grid",
             ),
-            max_height="62vh",
+            flex="1",
+            min_height="0",
+            height="100%",
             max_width="100%",
             overflow_x="auto",
             overflow_y="auto",
         ),
-        spacing="3",
+        spacing="0",
         align="stretch",
         width="100%",
+        height="100%",
+        min_height="0",
+        flex="1",
     )
 
 
@@ -948,7 +974,59 @@ def network_data_tab_content(tab: rx.Var[NetworkDataTab]) -> rx.Component:
         network_data_table(tab),
         value=tab["component"],
         width="100%",
+        height="100%",
         min_height="0",
+        flex="1",
+        overflow="hidden",
+    )
+
+
+def network_data_tabs() -> rx.Component:
+    """Render the editable whole-network data tabs."""
+    return rx.tabs.root(
+        rx.tabs.list(
+            rx.foreach(State.network_data_tabs, network_data_tab_trigger),
+            overflow_x="auto",
+            width="100%",
+            flex_wrap="nowrap",
+            flex_shrink="0",
+        ),
+        rx.foreach(State.network_data_tabs, network_data_tab_content),
+        value=State.network_data_active_component,
+        on_change=State.set_network_data_active_component,
+        width="100%",
+        height="100%",
+        min_height="0",
+        flex="1",
+        display="flex",
+        flex_direction="column",
+    )
+
+
+def network_data_view() -> rx.Component:
+    """Render the full-page editable Network Data view."""
+    return rx.vstack(
+        rx.hstack(
+            rx.spacer(),
+            rx.button(
+                rx.icon("workflow", size=15),
+                "Canvas",
+                on_click=State.show_canvas_view,
+                variant="soft",
+                size="2",
+            ),
+            width="100%",
+            align="center",
+            flex_shrink="0",
+        ),
+        network_data_tabs(),
+        spacing="2",
+        align="stretch",
+        width="100%",
+        height="100%",
+        min_height="0",
+        overflow="hidden",
+        background="var(--color-panel-solid)",
     )
 
 
@@ -971,19 +1049,7 @@ def network_data_dialog() -> rx.Component:
                 align="center",
                 width="100%",
             ),
-            rx.tabs.root(
-                rx.tabs.list(
-                    rx.foreach(State.network_data_tabs, network_data_tab_trigger),
-                    overflow_x="auto",
-                    width="100%",
-                    flex_wrap="nowrap",
-                ),
-                rx.foreach(State.network_data_tabs, network_data_tab_content),
-                value=State.network_data_active_component,
-                on_change=State.set_network_data_active_component,
-                width="100%",
-                margin_top="12px",
-            ),
+            network_data_tabs(),
             width="96vw",
             max_width="1800px",
         ),
@@ -1966,19 +2032,120 @@ def settings_tab_trigger_item(tab: rx.Var[SettingsTab]) -> rx.Component:
     return rx.tabs.trigger(rx.text(tab["label"], size="2"), value=tab["label"])
 
 
+def network_data_setting_row(row: rx.Var[NetworkDataComponentSetting]) -> rx.Component:
+    """Render one ordered Network Data component setting row."""
+    return rx.table.row(
+        rx.table.row_header_cell(
+            rx.vstack(
+                rx.text(row["label"], size="2", weight="medium"),
+                rx.text(row["component"], size="1", color_scheme="gray"),
+                spacing="0",
+                align="start",
+            ),
+            min_width="220px",
+        ),
+        rx.table.cell(
+            rx.switch(
+                checked=row["show_in_editor"].to(bool),
+                on_change=lambda value: State.update_network_data_component_setting(
+                    row["component"],
+                    value,
+                ),
+            ),
+            width="120px",
+        ),
+        rx.table.cell(
+            rx.switch(
+                checked=row["show_on_sld"].to(bool),
+                on_change=lambda value: State.update_network_data_component_sld_setting(
+                    row["component"],
+                    value,
+                ),
+            ),
+            width="120px",
+        ),
+        rx.table.cell(
+            rx.hstack(
+                rx.button(
+                    rx.icon("arrow-up", size=14),
+                    aria_label="Move up",
+                    title="Move up",
+                    size="1",
+                    variant="soft",
+                    on_click=lambda: State.move_network_data_component_setting(
+                        row["component"],
+                        -1,
+                    ),
+                ),
+                rx.button(
+                    rx.icon("arrow-down", size=14),
+                    aria_label="Move down",
+                    title="Move down",
+                    size="1",
+                    variant="soft",
+                    on_click=lambda: State.move_network_data_component_setting(
+                        row["component"],
+                        1,
+                    ),
+                ),
+                spacing="1",
+            ),
+            width="120px",
+        ),
+    )
+
+
+def network_data_settings_table() -> rx.Component:
+    """Render ordered Network Data visibility settings."""
+    return rx.box(
+        rx.table.root(
+            rx.table.header(
+                rx.table.row(
+                    rx.table.column_header_cell("Component"),
+                    rx.table.column_header_cell("Data editor"),
+                    rx.table.column_header_cell("SLD"),
+                    rx.table.column_header_cell("Order"),
+                )
+            ),
+            rx.table.body(
+                rx.foreach(
+                    State.settings_network_data_components,
+                    network_data_setting_row,
+                )
+            ),
+            size="2",
+            variant="surface",
+            width="100%",
+        ),
+        height="100%",
+        max_height="100%",
+        overflow_y="auto",
+        width="100%",
+    )
+
+
 def settings_tab_content(tab: rx.Var[SettingsTab]) -> rx.Component:
     """Render one settings tab content panel wrapped in a card."""
     return rx.tabs.content(
-        rx.card(
-            rx.vstack(
-                rx.foreach(tab["fields"], settings_field_row),
-                spacing="4",
-                align="stretch",
-                padding="12px",
+        rx.cond(
+            tab["label"] == "network_data",
+            network_data_settings_table(),
+            rx.card(
+                rx.vstack(
+                    rx.foreach(tab["fields"], settings_field_row),
+                    spacing="4",
+                    align="stretch",
+                    padding="12px",
+                ),
+                size="2",
+                height="100%",
+                overflow_y="auto",
             ),
-            size="2",
         ),
         value=tab["label"],
+        height="100%",
+        min_height="0",
+        overflow="hidden",
     )
 
 
@@ -2013,10 +2180,18 @@ def settings_dialog() -> rx.Component:
                 on_change=State.set_settings_active_tab,
                 orientation="vertical",
                 width="100%",
+                height="100%",
+                min_height="0",
+                flex="1",
+                overflow="hidden",
                 margin_top="12px",
             ),
-            width="560px",
+            width="900px",
+            height="720px",
             max_width="96vw",
+            max_height="92vh",
+            display="flex",
+            flex_direction="column",
         ),
         open=State.is_settings_dialog_open,
         on_open_change=State.set_settings_dialog_open,

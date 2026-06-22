@@ -116,7 +116,6 @@ def canvas_shortcuts_script() -> rx.Component:
                 n: "network-menu-trigger",
                 c: "canvas-menu-trigger",
                 v: "view-menu-trigger",
-                d: "data-menu-trigger",
               };
               const triggerId = menuTriggers[key];
               if (triggerId) {
@@ -133,14 +132,8 @@ def canvas_shortcuts_script() -> rx.Component:
               e: "network-export-shortcut",
               r: "canvas-auto-route-shortcut",
               "1": "view-builder-shortcut",
-              "2": "view-debug-network-shortcut",
-              "3": "view-catalog-shortcut",
+              "2": "view-network-data-shortcut",
             };
-            if (event.shiftKey && key === "d") {
-              event.preventDefault();
-              document.getElementById("data-network-data-shortcut")?.click();
-              return;
-            }
             if (event.shiftKey && key === "backspace") {
               event.preventDefault();
               document.getElementById("canvas-clear-shortcut")?.click();

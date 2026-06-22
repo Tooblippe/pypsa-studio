@@ -258,49 +258,16 @@ def view_menu() -> rx.Component:
         ),
         rx.menu.content(
             rx.menu.item(
-                "Builder",
+                "Canvas",
                 shortcut="Ctrl+1",
-                on_select=State.show_builder_view,
-                disabled=State.active_view == "builder",
+                on_select=State.show_canvas_view,
+                disabled=State.active_view == "canvas",
             ),
             rx.menu.item(
-                "Debug-Network",
+                "Network Data",
                 shortcut="Ctrl+2",
-                on_select=State.show_debug_network_view,
-                disabled=State.active_view == "debug-network",
-            ),
-            rx.menu.item(
-                "Catalog",
-                shortcut="Ctrl+3",
-                on_select=State.show_catalog_view,
-                disabled=State.active_view == "catalog",
-            ),
-            align="start",
-            size="2",
-            variant="soft",
-        ),
-    )
-
-
-def network_data_menu() -> rx.Component:
-    """Render the top-level data menu."""
-    return rx.menu.root(
-        rx.menu.trigger(
-            rx.button(
-                "Network Data",
-                rx.icon("chevron-down", size=14),
-                aria_label="Data menu",
-                variant="ghost",
-                size="2",
-                title="Data menu (Alt+D)",
-                custom_attrs={"id": "data-menu-trigger"},
-            )
-        ),
-        rx.menu.content(
-            rx.menu.item(
-                "Network Data",
-                shortcut="Ctrl+Shift+D",
-                on_select=State.open_network_data_dialog,
+                on_select=State.show_network_data_view,
+                disabled=State.active_view == "network-data",
             ),
             align="start",
             size="2",
@@ -362,24 +329,14 @@ def shortcut_actions() -> rx.Component:
             on_click=State.open_clear_canvas_dialog,
         ),
         rx.button(
-            "Builder",
+            "Canvas",
             id="view-builder-shortcut",
-            on_click=State.show_builder_view,
-        ),
-        rx.button(
-            "Debug-Network",
-            id="view-debug-network-shortcut",
-            on_click=State.show_debug_network_view,
-        ),
-        rx.button(
-            "Catalog",
-            id="view-catalog-shortcut",
-            on_click=State.show_catalog_view,
+            on_click=State.show_canvas_view,
         ),
         rx.button(
             "Network Data",
-            id="data-network-data-shortcut",
-            on_click=State.open_network_data_dialog,
+            id="view-network-data-shortcut",
+            on_click=State.show_network_data_view,
         ),
         display="none",
     )
@@ -390,8 +347,7 @@ def menu_bar() -> rx.Component:
     return rx.hstack(
         file_menu(),
         sld_menu(),
-        # view_menu(),
-        network_data_menu(),
+        view_menu(),
         shortcut_actions(),
         rx.spacer(),
         rx.text(State.network_name, size="2", color="#f8fafc"),

@@ -11,6 +11,8 @@ import tempfile
 import threading
 import time
 import tomllib
+from collections.abc import AsyncGenerator
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -80,6 +82,7 @@ from pypsa_studio.types import (
     FilePickerEntry,
     NetworkDataCell,
     NetworkDataColumn,
+    NetworkDataComponentSetting,
     NetworkDataRow,
     NetworkDataTab,
     NetworkLoadArtifacts,
@@ -121,6 +124,12 @@ CANVAS_REGION_NODE_SIZES = {
 FILE_PICKER_MAX_ENTRIES = 500
 FILE_PICKER_SAVE_FORMATS = {"csv", "netcdf", "hdf5"}
 FILE_PICKER_SUPPORTED_SUFFIXES = {".nc", ".h5", ".hdf5"}
+NETWORK_DATA_SETTINGS_SECTION = "network_data"
+NETWORK_DATA_SETTINGS_COMPONENTS_KEY = "components"
+NETWORK_DATA_EXTRA_COMPONENT_LABELS = {
+    "snapshots": "Snapshots",
+    "investment_periods": "Investment Periods",
+}
 
 
 def clean_upload_staging_dir(upload_dir: str | Path) -> None:
@@ -679,30 +688,117 @@ def write_file_picker_last_path(path: str | Path) -> None:
     _write_toml_file(data)
 
 
+def _default_network_data_settings_toml() -> str:
+    """Return the default ordered Network Data component settings TOML."""
+    data = {
+        NETWORK_DATA_SETTINGS_SECTION: {
+            NETWORK_DATA_SETTINGS_COMPONENTS_KEY: [
+                {
+                    "component": component_name,
+                    "show_in_editor": True,
+                    "show_on_sld": True,
+                }
+                for component_name in NETWORK_MODEL.all_components
+            ]
+            + [
+                {
+                    "component": component_name,
+                    "show_in_editor": True,
+                    "show_on_sld": True,
+                }
+                for component_name in NETWORK_DATA_EXTRA_COMPONENT_LABELS
+            ]
+        }
+    }
+    lines: list[str] = []
+    for row in data[NETWORK_DATA_SETTINGS_SECTION][
+        NETWORK_DATA_SETTINGS_COMPONENTS_KEY
+    ]:
+        lines.append(f"[[{NETWORK_DATA_SETTINGS_SECTION}.components]]")
+        lines.append(f'component = "{row["component"]}"')
+        lines.append("show_in_editor = true")
+        lines.append("show_on_sld = true")
+        lines.append("")
+    return "\n" + "\n".join(lines).rstrip("\n") + "\n"
+
+
+def network_data_component_label(component_name: str) -> str:
+    """Return the display label for a Network Data settings component."""
+    component = NETWORK_MODEL.all_components.get(component_name)
+    if component is not None:
+        return component.pypsa_name
+    return NETWORK_DATA_EXTRA_COMPONENT_LABELS.get(component_name, component_name)
+
+
+def is_network_data_settings_component(component_name: str) -> bool:
+    """Return whether a component name can be configured for Network Data."""
+    return (
+        component_name in NETWORK_MODEL.all_components
+        or component_name in NETWORK_DATA_EXTRA_COMPONENT_LABELS
+    )
+
+
+def network_data_settings_component_names() -> list[str]:
+    """Return all component names managed by Network Data settings."""
+    return [
+        *NETWORK_MODEL.all_components.keys(),
+        *NETWORK_DATA_EXTRA_COMPONENT_LABELS.keys(),
+    ]
+
+
+def _format_toml_scalar(value: object) -> str:
+    """Return one scalar value formatted for TOML output."""
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, (int, float)):
+        return str(value)
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _write_toml_list(lines: list[str], key: str, values: list[object]) -> None:
+    """Append a TOML list value to a list of output lines."""
+    lines.append(f"{key} = [")
+    for index, value in enumerate(values):
+        suffix = "," if index < len(values) - 1 else ""
+        lines.append(f"  {_format_toml_scalar(value)}{suffix}")
+    lines.append("]")
+
+
 def _write_toml_file(data: dict[str, dict[str, object]]) -> None:
     """Write a nested dict as a TOML file to SETTINGS_FILE."""
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
     for section, pairs in data.items():
-        lines.append(f"[{section}]")
+        array_tables: dict[str, list[dict[str, object]]] = {}
+        scalar_pairs: dict[str, object] = {}
         for key, value in pairs.items():
-            if isinstance(value, list):
-                str_values = [str(v) for v in value]
-                lines.append(f"{key} = [")
-                for i, sv in enumerate(str_values):
-                    if i < len(str_values) - 1:
-                        lines.append(f'  "{sv}",')
-                    else:
-                        lines.append(f'  "{sv}"')
-                lines.append("]")
-            elif isinstance(value, bool):
-                lines.append(f"{key} = {str(value).lower()}")
-            elif isinstance(value, (int, float)):
-                lines.append(f"{key} = {value}")
+            if isinstance(value, list) and all(isinstance(v, dict) for v in value):
+                array_tables[key] = [
+                    {str(item_key): item_value for item_key, item_value in item.items()}
+                    for item in value
+                ]
             else:
-                escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-                lines.append(f'{key} = "{escaped}"')
-        lines.append("")
+                scalar_pairs[key] = value
+
+        if scalar_pairs:
+            lines.append(f"[{section}]")
+            for key, value in scalar_pairs.items():
+                if isinstance(value, list):
+                    _write_toml_list(lines, key, value)
+                else:
+                    lines.append(f"{key} = {_format_toml_scalar(value)}")
+            lines.append("")
+
+        for key, rows in array_tables.items():
+            for row in rows:
+                lines.append(f"[[{section}.{key}]]")
+                for row_key, row_value in row.items():
+                    if isinstance(row_value, list):
+                        _write_toml_list(lines, row_key, row_value)
+                    else:
+                        lines.append(f"{row_key} = {_format_toml_scalar(row_value)}")
+                lines.append("")
     SETTINGS_FILE.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
 
 
@@ -821,7 +917,74 @@ def icon_row(component_name: str, pypsa_name: str) -> ComponentRow:
 
 def palette_groups() -> dict[str, list[ComponentRow]]:
     """Return the component groups shown in the builder palette."""
-    return model_sections(NETWORK_MODEL)
+    return filter_palette_groups_for_sld(
+        model_sections(NETWORK_MODEL),
+        network_data_settings_lookup_from_file(),
+    )
+
+
+def network_data_settings_lookup_from_file() -> dict[str, NetworkDataComponentSetting]:
+    """Return Network Data settings from settings.toml keyed by component name."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        with open(SETTINGS_FILE, "rb") as fh:
+            raw = tomllib.load(fh)
+    except OSError, tomllib.TOMLDecodeError:
+        return {}
+
+    section = raw.get(NETWORK_DATA_SETTINGS_SECTION, {})
+    if not isinstance(section, dict):
+        return {}
+    raw_rows = section.get(NETWORK_DATA_SETTINGS_COMPONENTS_KEY, [])
+    if not isinstance(raw_rows, list):
+        return {}
+
+    rows: dict[str, NetworkDataComponentSetting] = {}
+    for raw_row in raw_rows:
+        if not isinstance(raw_row, dict):
+            continue
+        component_name = str(raw_row.get("component", "")).strip()
+        if not is_network_data_settings_component(component_name):
+            continue
+        rows[component_name] = {
+            "component": component_name,
+            "label": network_data_component_label(component_name),
+            "show_in_editor": bool(raw_row.get("show_in_editor", True)),
+            "show_on_sld": bool(raw_row.get("show_on_sld", True)),
+        }
+    return rows
+
+
+def filter_component_rows_for_sld(
+    rows: list[ComponentRow],
+    settings_by_component: dict[str, NetworkDataComponentSetting],
+) -> list[ComponentRow]:
+    """Return only component rows configured as visible on the SLD palette."""
+    return [
+        row
+        for row in rows
+        if settings_by_component.get(
+            row["component"],
+            {
+                "component": row["component"],
+                "label": row["pypsa_name"],
+                "show_in_editor": True,
+                "show_on_sld": True,
+            },
+        )["show_on_sld"]
+    ]
+
+
+def filter_palette_groups_for_sld(
+    groups: dict[str, list[ComponentRow]],
+    settings_by_component: dict[str, NetworkDataComponentSetting],
+) -> dict[str, list[ComponentRow]]:
+    """Return palette groups filtered by configured SLD visibility."""
+    return {
+        section: filter_component_rows_for_sld(rows, settings_by_component)
+        for section, rows in groups.items()
+    }
 
 
 def component_defaults(component: ComponentType) -> dict[str, object]:
@@ -837,6 +1000,36 @@ def attr_input_type(pypsa_type: str | None, python_type: str | None) -> str:
     if "float" in type_text or "int" in type_text:
         return "number"
     return "text"
+
+
+def clean_numeric_text(value: object) -> object:
+    """Return numeric text without thousands separators."""
+    if isinstance(value, str):
+        return value.replace(",", "").strip()
+    return value
+
+
+def format_numeric_display_value(value: object) -> str:
+    """Format a numeric editor value with thousands separators."""
+    text = str(value if value is not None else "").strip()
+    if text == "":
+        return ""
+    try:
+        number = Decimal(text.replace(",", ""))
+    except InvalidOperation:
+        return text
+    if not number.is_finite():
+        return text
+    if number == number.to_integral_value():
+        return f"{int(number):,}"
+    return f"{number:,.12f}".rstrip("0").rstrip(".")
+
+
+def network_data_display_value(value: object, input_type: str) -> str:
+    """Return the formatted Network Data editor value."""
+    if input_type == "number":
+        return format_numeric_display_value(value)
+    return str(value if value is not None else "")
 
 
 def is_bus_reference_attr(attr_name: str) -> bool:
@@ -1329,6 +1522,19 @@ def network_data_column_for_attr(
 
 def network_data_columns(component_name: str) -> list[NetworkDataColumn]:
     """Return columns for the component network data grid, excluding name."""
+    if component_name in SNAPSHOT_TABLE_COLUMNS:
+        return [
+            {
+                "component": component_name,
+                "name": column_name,
+                "type": "string",
+                "input_type": "text",
+                "is_time_series": False,
+                "is_bus_reference": False,
+                "options": [],
+            }
+            for column_name in SNAPSHOT_TABLE_COLUMNS[component_name]
+        ]
     component = NETWORK_MODEL.component(component_name)
     return [
         network_data_column_for_attr(component_name, attr_name)
@@ -1777,7 +1983,7 @@ class State(rx.State):
     canvas_bus_names: list[str] = []
     router_options: list[RouterOption] = ROUTER_OPTIONS
     selected_router_name: str = JS_ELK_ROUTER_NAME
-    active_view: str = "builder"
+    active_view: str = "canvas"
     show_left_sidebar: bool = True
     show_right_sidebar: bool = True
     route_version: int = 0
@@ -1874,10 +2080,12 @@ class State(rx.State):
     is_settings_dialog_open: bool = False
     settings_tabs: list[SettingsTab] = []
     settings_active_tab: str = ""
+    settings_network_data_components: list[NetworkDataComponentSetting] = []
 
     def load_default_model(self) -> None:
         """Reset catalog metadata to the empty PyPSA network defaults."""
         self.sections = model_sections(NETWORK_MODEL)
+        self._refresh_palette_from_settings()
         self.loaded_source = ""
         self.network_has_unsaved_changes = False
         self.save_network_folder = ""
@@ -1943,7 +2151,79 @@ Router_type_options = [
 [FilePicker]
 Last_path = "~"
 """
-        SETTINGS_FILE.write_text(default.lstrip("\n"), encoding="utf-8")
+        SETTINGS_FILE.write_text(
+            default.lstrip("\n") + _default_network_data_settings_toml(),
+            encoding="utf-8",
+        )
+
+    def _network_data_setting_rows(self) -> list[NetworkDataComponentSetting]:
+        """Return ordered Network Data component settings from settings.toml."""
+        if not SETTINGS_FILE.exists():
+            self._create_default_settings_file()
+
+        try:
+            with open(SETTINGS_FILE, "rb") as fh:
+                raw = tomllib.load(fh)
+        except OSError, tomllib.TOMLDecodeError:
+            raw = {}
+
+        configured_rows = []
+        section = raw.get(NETWORK_DATA_SETTINGS_SECTION, {})
+        if isinstance(section, dict):
+            raw_rows = section.get(NETWORK_DATA_SETTINGS_COMPONENTS_KEY, [])
+            if isinstance(raw_rows, list):
+                configured_rows = raw_rows
+
+        rows: list[NetworkDataComponentSetting] = []
+        seen: set[str] = set()
+        for raw_row in configured_rows:
+            if not isinstance(raw_row, dict):
+                continue
+            component_name = str(raw_row.get("component", "")).strip()
+            if component_name in seen:
+                continue
+            if not is_network_data_settings_component(component_name):
+                continue
+            rows.append(
+                {
+                    "component": component_name,
+                    "label": network_data_component_label(component_name),
+                    "show_in_editor": bool(raw_row.get("show_in_editor", True)),
+                    "show_on_sld": bool(raw_row.get("show_on_sld", True)),
+                }
+            )
+            seen.add(component_name)
+
+        for component_name in network_data_settings_component_names():
+            if component_name in seen:
+                continue
+            rows.append(
+                {
+                    "component": component_name,
+                    "label": network_data_component_label(component_name),
+                    "show_in_editor": True,
+                    "show_on_sld": True,
+                }
+            )
+
+        return rows
+
+    def _network_data_settings_lookup(
+        self,
+    ) -> dict[str, NetworkDataComponentSetting]:
+        """Return Network Data settings keyed by component name."""
+        return {row["component"]: row for row in self._network_data_setting_rows()}
+
+    def _refresh_palette_from_settings(
+        self,
+        loaded_network: PypsaLoadedNetwork | None = None,
+    ) -> None:
+        """Refresh the left palette from current model metadata and SLD settings."""
+        groups = model_sections(NETWORK_MODEL, loaded_network)
+        self.palette = filter_palette_groups_for_sld(
+            groups,
+            self._network_data_settings_lookup(),
+        )
 
     def _load_settings_options(self) -> dict[str, list[str]]:
         """Read the {key}_options lists from the settings.toml file."""
@@ -1966,8 +2246,21 @@ Last_path = "~"
         """Persist the current in-memory settings to settings.toml."""
         data: dict[str, dict[str, object]] = {}
         for tab in self.settings_tabs:
+            if tab["label"] == NETWORK_DATA_SETTINGS_SECTION:
+                continue
             for field in tab["fields"]:
                 data.setdefault(field["section"], {})[field["key"]] = field["value"]
+
+        data[NETWORK_DATA_SETTINGS_SECTION] = {
+            NETWORK_DATA_SETTINGS_COMPONENTS_KEY: [
+                {
+                    "component": row["component"],
+                    "show_in_editor": row["show_in_editor"],
+                    "show_on_sld": row["show_on_sld"],
+                }
+                for row in self.settings_network_data_components
+            ]
+        }
 
         options = self._load_settings_options()
         for dotted, opts in options.items():
@@ -1985,6 +2278,11 @@ Last_path = "~"
         for section, pair in data.items():
             fields: list[SettingField] = []
             for key, value in pair.items():
+                if (
+                    section == NETWORK_DATA_SETTINGS_SECTION
+                    and key == NETWORK_DATA_SETTINGS_COMPONENTS_KEY
+                ):
+                    continue
                 dotted = f"{section}.{key}"
                 opts = file_options.get(dotted, [])
                 py_type = type(value).__name__
@@ -1997,12 +2295,18 @@ Last_path = "~"
                         "options": opts,
                     }
                 )
-            tabs.append({"label": section, "fields": fields})
+            if fields or section == NETWORK_DATA_SETTINGS_SECTION:
+                tabs.append({"label": section, "fields": fields})
+        if NETWORK_DATA_SETTINGS_SECTION not in {tab["label"] for tab in tabs}:
+            tabs.append({"label": NETWORK_DATA_SETTINGS_SECTION, "fields": []})
         return tabs
 
     def open_settings_dialog(self) -> None:
         """Build settings tabs and open the settings dialog."""
+        self.settings_network_data_components = self._network_data_setting_rows()
         self.settings_tabs = self._build_settings_tabs()
+        self._refresh_palette_from_settings()
+        self._save_settings_file()
         if self.settings_tabs:
             self.settings_active_tab = self.settings_tabs[0]["label"]
         self.is_settings_dialog_open = True
@@ -2033,6 +2337,66 @@ Last_path = "~"
                 break
         self.settings_tabs = tabs
         self._save_settings_file()
+
+    async def update_network_data_component_setting(
+        self, component_name: str, show_in_editor: bool
+    ) -> AsyncGenerator[None, None]:
+        """Update whether a Network Data component appears in the editor."""
+        component_name = str(component_name)
+        rows = list(self.settings_network_data_components)
+        for index, row in enumerate(rows):
+            if row["component"] == component_name:
+                rows[index] = {**row, "show_in_editor": bool(show_in_editor)}
+                break
+        self.settings_network_data_components = rows
+        self._save_settings_file()
+        yield
+
+        if self._should_sync_network_data_view():
+            self._sync_network_data_dialog()
+            yield
+
+    async def update_network_data_component_sld_setting(
+        self, component_name: str, show_on_sld: bool
+    ) -> AsyncGenerator[None, None]:
+        """Update whether a Network Data component appears in the SLD palette."""
+        component_name = str(component_name)
+        rows = list(self.settings_network_data_components)
+        for index, row in enumerate(rows):
+            if row["component"] == component_name:
+                rows[index] = {**row, "show_on_sld": bool(show_on_sld)}
+                break
+        self.settings_network_data_components = rows
+        self._save_settings_file()
+        self._refresh_palette_from_settings()
+        yield
+
+    async def move_network_data_component_setting(
+        self, component_name: str, direction: int
+    ) -> AsyncGenerator[None, None]:
+        """Move a Network Data component setting up or down in editor order."""
+        component_name = str(component_name)
+        direction = -1 if int(direction) < 0 else 1
+        rows = list(self.settings_network_data_components)
+        source_index = next(
+            (
+                index
+                for index, row in enumerate(rows)
+                if row["component"] == component_name
+            ),
+            -1,
+        )
+        target_index = source_index + direction
+        if source_index < 0 or target_index < 0 or target_index >= len(rows):
+            return
+        rows[source_index], rows[target_index] = rows[target_index], rows[source_index]
+        self.settings_network_data_components = rows
+        self._save_settings_file()
+        yield
+
+        if self._should_sync_network_data_view():
+            self._sync_network_data_dialog()
+            yield
 
     def _mark_network_dirty(self) -> None:
         """Record that the in-memory network differs from the saved source."""
@@ -2259,13 +2623,18 @@ Last_path = "~"
             for column in columns:
                 attr_name = column["name"]
                 attr = component.attrs[attr_name]
+                value = attrs.get(attr_name, attr.default)
                 cells.append(
                     {
                         "component": component_name,
                         "row_id": node["id"],
                         "row_index": row_index,
                         "attr_name": attr_name,
-                        "value": attrs.get(attr_name, attr.default),
+                        "value": value,
+                        "display_value": network_data_display_value(
+                            value,
+                            column["input_type"],
+                        ),
                         "type": column["type"],
                         "input_type": column["input_type"],
                         "is_time_series": column["is_time_series"],
@@ -2301,13 +2670,18 @@ Last_path = "~"
             cells: list[NetworkDataCell] = []
             for column in columns:
                 attr_name = column["name"]
+                value = values_by_column.get(attr_name, "")
                 cells.append(
                     {
                         "component": component_name,
                         "row_id": str(row["id"]),
                         "row_index": int(row["row_index"]),
                         "attr_name": attr_name,
-                        "value": values_by_column.get(attr_name, ""),
+                        "value": value,
+                        "display_value": network_data_display_value(
+                            value,
+                            column["input_type"],
+                        ),
                         "type": column["type"],
                         "input_type": column["input_type"],
                         "is_time_series": column["is_time_series"],
@@ -2340,17 +2714,20 @@ Last_path = "~"
         return self._network_data_table_rows(component_name)
 
     def _sync_network_data_dialog(self) -> None:
-        """Refresh the whole-network data dialog tables from current state."""
+        """Refresh the whole-network data tables from current state."""
         tabs: list[NetworkDataTab] = []
-        for component_name, component in NETWORK_MODEL.all_components.items():
-            if component_name in {"line_types", "transformer_types"}:
+        component_settings = self._network_data_setting_rows()
+        self.settings_network_data_components = component_settings
+        for component_setting in component_settings:
+            if not component_setting["show_in_editor"]:
                 continue
+            component_name = component_setting["component"]
             columns = network_data_columns(component_name)
             rows = self._network_data_rows_for_component(component_name)
             tabs.append(
                 {
                     "component": component_name,
-                    "label": component.pypsa_name,
+                    "label": network_data_component_label(component_name),
                     "columns": columns,
                     "rows": rows,
                     "row_count": len(rows),
@@ -2375,8 +2752,12 @@ Last_path = "~"
     def set_network_data_active_component(self, value: str) -> None:
         """Set the active component tab in the Network Data dialog."""
         component_name = str(value)
-        if component_name in NETWORK_MODEL.all_components:
+        if is_network_data_settings_component(component_name):
             self.network_data_active_component = component_name
+
+    def _should_sync_network_data_view(self) -> bool:
+        """Return whether Network Data tables are currently visible."""
+        return self.is_network_data_dialog_open or self.active_view == "network-data"
 
     def _row_name_for_network_data(
         self,
@@ -2445,10 +2826,10 @@ Last_path = "~"
         row_index: int,
         value: str,
     ) -> None:
-        """Update a row name from the Network Data dialog."""
+        """Update a row name from Network Data."""
         component_name = str(component_name)
         new_name = str(value)
-        if component_name not in NETWORK_MODEL.all_components:
+        if not is_network_data_settings_component(component_name):
             return
         if is_canvas_data_component(component_name):
             for node in self.diagram_nodes:
@@ -2465,6 +2846,8 @@ Last_path = "~"
                 self._sync_diagram_model()
                 if self.selected_node_id == node["id"]:
                     self.selected_attr_rows = self._selected_attr_rows_for_node(node)
+                if self._should_sync_network_data_view():
+                    self._sync_network_data_dialog()
                 return
 
         table = self._ensure_network_data_table(component_name)
@@ -2479,45 +2862,18 @@ Last_path = "~"
             self._mark_network_dirty()
             self._cascade_reference_rename(component_name, old_name, new_name)
             self._sync_diagram_model()
-            self._sync_network_data_dialog()
+            if self._should_sync_network_data_view():
+                self._sync_network_data_dialog()
             return
 
-    def update_network_data_cell(
+    def _update_network_data_table_cell(
         self,
         component_name: str,
-        row_id: str,
         row_index: int,
         attr_name: str,
         value: object,
     ) -> None:
-        """Update a Network Data cell."""
-        component_name = str(component_name)
-        attr_name = str(attr_name)
-        if component_name not in NETWORK_MODEL.all_components:
-            return
-        component = NETWORK_MODEL.component(component_name)
-        attr = component.attrs.get(attr_name)
-        if attr is None:
-            return
-        if is_canvas_data_component(component_name):
-            for node in self.diagram_nodes:
-                if node["id"] != str(row_id):
-                    continue
-                parsed_value = self._parse_attr_value(
-                    value, attr.pypsa_type, attr.python_type
-                )
-                if node["attrs"].get(attr_name) == parsed_value:
-                    return
-                self._push_canvas_history()
-                node["attrs"][attr_name] = parsed_value
-                if attr_name in REFERENCE_ATTR_TABLES:
-                    self._ensure_reference_row(attr_name, parsed_value)
-                node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
-                self._sync_diagram_model()
-                if self.selected_node_id == node["id"]:
-                    self.selected_attr_rows = self._selected_attr_rows_for_node(node)
-                return
-
+        """Update a non-canvas Network Data backing table cell."""
         table = self._ensure_network_data_table(component_name)
         if attr_name not in table["columns"]:
             table["columns"].append(attr_name)
@@ -2538,8 +2894,71 @@ Last_path = "~"
                 )
             table["dirty"] = True
             self._mark_network_dirty()
-            self._sync_network_data_dialog()
+            if self._should_sync_network_data_view():
+                self._sync_network_data_dialog()
             return
+
+    def update_network_data_cell(
+        self,
+        component_name: str,
+        row_id: str,
+        row_index: int,
+        attr_name: str,
+        value: object,
+    ) -> None:
+        """Update a Network Data cell."""
+        component_name = str(component_name)
+        attr_name = str(attr_name)
+        if component_name in SNAPSHOT_TABLE_COLUMNS:
+            self._update_network_data_table_cell(
+                component_name,
+                row_index,
+                attr_name,
+                value,
+            )
+            return
+        if component_name not in NETWORK_MODEL.all_components:
+            return
+        component = NETWORK_MODEL.component(component_name)
+        attr = component.attrs.get(attr_name)
+        if attr is None:
+            return
+        clean_value = (
+            clean_numeric_text(value)
+            if attr_input_type(
+                attr.pypsa_type,
+                attr.python_type,
+            )
+            == "number"
+            else value
+        )
+        if is_canvas_data_component(component_name):
+            for node in self.diagram_nodes:
+                if node["id"] != str(row_id):
+                    continue
+                parsed_value = self._parse_attr_value(
+                    clean_value, attr.pypsa_type, attr.python_type
+                )
+                if node["attrs"].get(attr_name) == parsed_value:
+                    return
+                self._push_canvas_history()
+                node["attrs"][attr_name] = parsed_value
+                if attr_name in REFERENCE_ATTR_TABLES:
+                    self._ensure_reference_row(attr_name, parsed_value)
+                node["attr_rows"] = diagram_attr_rows(component, node["attrs"])
+                self._sync_diagram_model()
+                if self.selected_node_id == node["id"]:
+                    self.selected_attr_rows = self._selected_attr_rows_for_node(node)
+                if self._should_sync_network_data_view():
+                    self._sync_network_data_dialog()
+                return
+
+        self._update_network_data_table_cell(
+            component_name,
+            row_index,
+            attr_name,
+            clean_value,
+        )
 
     def commit_network_data_reference(
         self,
@@ -2551,7 +2970,8 @@ Last_path = "~"
         del component_name
         if str(attr_name) in REFERENCE_ATTR_TABLES:
             self._ensure_reference_row(str(attr_name), value)
-            self._sync_network_data_dialog()
+            if self._should_sync_network_data_view():
+                self._sync_network_data_dialog()
 
     def _open_time_series_table(
         self,
@@ -3087,6 +3507,7 @@ Last_path = "~"
         network = artifacts["network"]
         loaded_network = artifacts["loaded_network"]
         self.sections = model_sections(NETWORK_MODEL, loaded_network)
+        self._refresh_palette_from_settings(loaded_network)
         self.loaded_source = loaded_source or loaded_network.source or ""
         self.save_network_folder = save_network_folder
         self.save_network_path = save_network_path
@@ -3504,7 +3925,7 @@ Last_path = "~"
         self.carrier_visibility_rows = []
         self.visible_canvas_carriers = []
         self.carrier_visibility_initialized = False
-        if self.is_network_data_dialog_open:
+        if self._should_sync_network_data_view():
             self._sync_network_data_dialog()
         self._clear_canvas_history()
 
@@ -3635,11 +4056,12 @@ Last_path = "~"
         self.is_file_picker_overwrite_dialog_open = False
         self.file_picker_selected_path = ""
         self.network_has_unsaved_changes = False
-        if self.is_network_data_dialog_open:
+        if self._should_sync_network_data_view():
             self._sync_network_data_dialog()
 
     def reset_builder_on_load(self) -> None:
         """Reset transient builder state when the app page is loaded."""
+        self.active_view = "canvas"
         self.clear_canvas()
         self._clear_canvas_history()
         self.load_message = "Using empty PyPSA network defaults."
@@ -3797,9 +4219,18 @@ Last_path = "~"
         """Update whether the right selection sidebar is visible."""
         self.show_right_sidebar = bool(value)
 
+    def show_canvas_view(self) -> None:
+        """Show the schematic canvas view."""
+        self.active_view = "canvas"
+
+    def show_network_data_view(self) -> None:
+        """Show the editable whole-network data view."""
+        self._sync_network_data_dialog()
+        self.active_view = "network-data"
+
     def show_builder_view(self) -> None:
         """Show the schematic builder view."""
-        self.active_view = "builder"
+        self.show_canvas_view()
 
     def show_debug_network_view(self) -> None:
         """Show the debug network object view."""
@@ -6117,7 +6548,7 @@ Last_path = "~"
             for node in self.diagram_nodes
             if node["component"] == "buses"
         ]
-        if self.is_network_data_dialog_open:
+        if self._should_sync_network_data_view():
             self._sync_network_data_dialog()
 
     def _sync_diagram_edges(self) -> None:
@@ -6244,16 +6675,17 @@ Last_path = "~"
     ) -> object:
         """Parse editor string values according to PyPSA type metadata."""
         type_text = f"{pypsa_type or ''} {python_type or ''}".lower()
+        clean_value = clean_numeric_text(value)
         if "bool" in type_text:
             return bool(value)
         if "int" in type_text:
             try:
-                return int(value)
+                return int(clean_value)
             except TypeError, ValueError:
                 return value
         if "float" in type_text:
             try:
-                return float(value)
+                return float(clean_value)
             except TypeError, ValueError:
                 return value
         return value

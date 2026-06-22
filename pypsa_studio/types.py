@@ -172,6 +172,7 @@ class NetworkDataCell(TypedDict):
     row_index: int
     attr_name: str
     value: object
+    display_value: str
     type: str
     input_type: str
     is_time_series: bool
@@ -194,6 +195,13 @@ class NetworkDataTab(TypedDict):
     columns: list[NetworkDataColumn]
     rows: list[NetworkDataRow]
     row_count: int
+
+
+class NetworkDataComponentSetting(TypedDict):
+    component: str
+    label: str
+    show_in_editor: bool
+    show_on_sld: bool
 
 
 class CarrierVisibilityRow(TypedDict):
