@@ -1213,7 +1213,7 @@ def demo_styles() -> rx.Component:
             background: var(--gray-4);
           }
           .palette-sidebar {
-            padding: 6px !important;
+            padding: 4px !important;
           }
           .inspector-sidebar {
             padding: 14px !important;

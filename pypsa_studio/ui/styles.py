@@ -149,7 +149,7 @@ def demo_styles() -> rx.Component:
             background: var(--gray-4);
           }
           .palette-sidebar {
-            padding: 6px !important;
+            padding: 4px !important;
           }
           .palette-tool-button {
             --palette-tool-color: #15803d;

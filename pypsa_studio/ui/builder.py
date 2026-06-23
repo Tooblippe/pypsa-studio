@@ -123,20 +123,22 @@ def palette_section(
     )
     return rx.vstack(
         rx.text(title, size="1", weight="medium", color_scheme="gray"),
-        rx.grid(
-            rx.foreach(components, item_renderer),
-            gap="6px",
-            grid_template_columns=f"repeat({columns}, 32px)",
-            justify_content="center",
-            width="fit-content",
+        rx.box(
+            rx.grid(
+                rx.foreach(components, item_renderer),
+                gap="4px",
+                grid_template_columns=f"repeat({columns}, 32px)",
+                justify_content="center",
+                width="fit-content",
+            ),
+            padding="4px",
+            border="1px solid var(--gray-6)",
+            border_radius="6px",
+            background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
         ),
         spacing="1",
         align="center",
-        width="108px",
-        padding="5px",
-        border="1px solid var(--gray-6)",
-        border_radius="6px",
-        background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
+        width="88px",
     )
 
 
@@ -144,25 +146,29 @@ def bus_palette_section() -> rx.Component:
     """Render bus and bus-attached component icons."""
     return rx.vstack(
         rx.text("Bus", size="1", weight="medium", color_scheme="gray"),
-        rx.grid(
-            rx.foreach(State.palette["fundamental"], palette_item),
-        ),
-        rx.grid(
-            # rx.foreach(State.palette["fundamental"], palette_item),
-            rx.foreach(State.palette["primary_components"], palette_item),
-            rx.foreach(State.palette["delayed_components"], palette_item),
-            gap="6px",
-            grid_template_columns="repeat(2, 32px)",
-            justify_content="center",
-            width="fit-content",
+        rx.vstack(
+            rx.grid(
+                rx.foreach(State.palette["fundamental"], palette_item),
+            ),
+            rx.grid(
+                # rx.foreach(State.palette["fundamental"], palette_item),
+                rx.foreach(State.palette["primary_components"], palette_item),
+                rx.foreach(State.palette["delayed_components"], palette_item),
+                gap="4px",
+                grid_template_columns="repeat(2, 32px)",
+                justify_content="center",
+                width="fit-content",
+            ),
+            spacing="1",
+            align="center",
+            padding="4px",
+            border="1px solid var(--gray-6)",
+            border_radius="6px",
+            background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
         ),
         spacing="1",
         align="center",
-        width="108px",
-        padding="5px",
-        border="1px solid var(--gray-6)",
-        border_radius="6px",
-        background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
+        width="88px",
     )
 
 
@@ -170,21 +176,27 @@ def branch_palette_section() -> rx.Component:
     """Render branch component icons."""
     return rx.vstack(
         rx.text("Branch", size="1", weight="medium", color_scheme="gray"),
-        rx.grid(
-            rx.foreach(State.palette["primary_branch_components"], branch_palette_item),
-            rx.foreach(State.palette["delayed_branch_components"], branch_palette_item),
-            gap="6px",
-            grid_template_columns="repeat(2, 32px)",
-            justify_content="center",
-            width="fit-content",
+        rx.box(
+            rx.grid(
+                rx.foreach(
+                    State.palette["primary_branch_components"], branch_palette_item
+                ),
+                rx.foreach(
+                    State.palette["delayed_branch_components"], branch_palette_item
+                ),
+                gap="4px",
+                grid_template_columns="repeat(2, 32px)",
+                justify_content="center",
+                width="fit-content",
+            ),
+            padding="4px",
+            border="1px solid var(--gray-6)",
+            border_radius="6px",
+            background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
         ),
         spacing="1",
         align="center",
-        width="108px",
-        padding="5px",
-        border="1px solid var(--gray-6)",
-        border_radius="6px",
-        background="color-mix(in srgb, var(--color-panel-solid) 66%, transparent)",
+        width="88px",
     )
 
 
@@ -202,12 +214,12 @@ def palette_sidebar() -> rx.Component:
         ),
         spacing="2",
         align="stretch",
-        width="120px",
-        min_width="120px",
+        width="96px",
+        min_width="96px",
         height="100%",
         min_height="0",
         # overflow_y="auto",
-        padding="6px",
+        padding="4px",
         border_right="1px solid var(--gray-5)",
         class_name="palette-sidebar",
     )
@@ -389,7 +401,7 @@ def right_sidebar() -> rx.Component:
     """Render the selected component attribute editor."""
     return rx.vstack(
         rx.hstack(
-            rx.heading("Selection", size="4"),
+            rx.heading("Component Data", size="4"),
             rx.cond(
                 State.selected_node_id != "",
                 rx.button(
@@ -427,9 +439,7 @@ def right_sidebar() -> rx.Component:
                 align="stretch",
                 width="100%",
             ),
-            rx.text(
-                "Select a node to edit its attributes.", size="2", color_scheme="gray"
-            ),
+            rx.fragment(),
         ),
         spacing="4",
         align="stretch",

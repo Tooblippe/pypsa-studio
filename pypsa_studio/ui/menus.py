@@ -350,7 +350,7 @@ def menu_bar() -> rx.Component:
         view_menu(),
         shortcut_actions(),
         rx.spacer(),
-        rx.text(State.network_name, size="2", color="#f8fafc"),
+        rx.text("Network name: ", State.network_name, size="2", color="#f8fafc"),
         spacing="4",
         align="center",
         width="100%",
