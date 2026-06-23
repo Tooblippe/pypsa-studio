@@ -666,6 +666,11 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
     targetKinds: ["region"],
   },
   {
+    id: "resize_region_marker",
+    label: "Resize",
+    targetKinds: ["region"],
+  },
+  {
     id: "zoom_to_region",
     label: "Zoom to region",
     targetKinds: ["region"],
@@ -816,6 +821,32 @@ function offsetRegionBounds(region, delta) {
     width: Number(region?.width || 0),
     height: Number(region?.height || 0),
   };
+}
+
+function resizeRegionBounds(region, handle, point) {
+  const minSize = 16;
+  const left = Number(region?.x || 0);
+  const top = Number(region?.y || 0);
+  const right = left + Number(region?.width || 0);
+  const bottom = top + Number(region?.height || 0);
+  const next = { x: left, y: top, width: right - left, height: bottom - top };
+
+  if (handle.includes("w")) {
+    next.x = Math.min(point.x, right - minSize);
+    next.width = right - next.x;
+  }
+  if (handle.includes("e")) {
+    next.width = Math.max(minSize, point.x - left);
+  }
+  if (handle.includes("n")) {
+    next.y = Math.min(point.y, bottom - minSize);
+    next.height = bottom - next.y;
+  }
+  if (handle.includes("s")) {
+    next.height = Math.max(minSize, point.y - top);
+  }
+
+  return next;
 }
 
 function flowRectForRegion(region) {
@@ -1061,6 +1092,8 @@ function CanvasInner({
   const [selectionDrag, setSelectionDrag] = useStateReactFlowCanvas(null);
   const [armedRegionDrag, setArmedRegionDrag] = useStateReactFlowCanvas(null);
   const [regionDrag, setRegionDrag] = useStateReactFlowCanvas(null);
+  const [armedRegionResize, setArmedRegionResize] = useStateReactFlowCanvas(null);
+  const [regionResize, setRegionResize] = useStateReactFlowCanvas(null);
   const [editingRegionId, setEditingRegionId] = useStateReactFlowCanvas("");
   const [editingRegionName, setEditingRegionName] = useStateReactFlowCanvas("");
   const [viewportRevision, setViewportRevision] = useStateReactFlowCanvas(0);
@@ -1286,15 +1319,19 @@ function CanvasInner({
           const previewRegion =
             regionDrag?.regionId === region.id
               ? { ...region, ...offsetRegionBounds(regionDrag.originalRegion, regionDrag.delta) }
+              : regionResize?.regionId === region.id
+                ? { ...region, ...regionResize.bounds }
               : region;
           return {
             ...previewRegion,
             rect: localRectFromFlowBounds(previewRegion, reactFlow, flowWrapperRef.current),
             isArmedForDrag: armedRegionDrag?.regionId === region.id,
             isDragging: regionDrag?.regionId === region.id,
+            isArmedForResize: armedRegionResize?.regionId === region.id,
+            isResizing: regionResize?.regionId === region.id,
           };
         }),
-    [armedRegionDrag, regions, reactFlow, regionDrag, viewportRevision],
+    [armedRegionDrag, armedRegionResize, regions, reactFlow, regionDrag, regionResize, viewportRevision],
   );
 
   useEffectReactFlowCanvas(() => {
@@ -1349,6 +1386,8 @@ function CanvasInner({
         }
         setArmedRegionDrag(null);
         setRegionDrag(null);
+        setArmedRegionResize(null);
+        setRegionResize(null);
         closeContextMenu();
         if (rectangleSelectionArmed || selectionDrag) {
           setSelectionDrag(null);
@@ -1487,6 +1526,7 @@ function CanvasInner({
   const handleRegionMouseDown = useCallbackReactFlowCanvas(
     (event, region) => {
       if (event.button !== 0) return;
+      if (armedRegionResize) return;
       if (!armedRegionDrag || armedRegionDrag.regionId !== region.id) return;
       event.preventDefault();
       event.stopPropagation();
@@ -1521,6 +1561,7 @@ function CanvasInner({
     },
     [
       armedRegionDrag,
+      armedRegionResize,
       closeContextMenu,
       flowNodes,
       flowPositionFromEvent,
@@ -1621,6 +1662,78 @@ function CanvasInner({
     ],
   );
 
+  const handleRegionResizeMouseDown = useCallbackReactFlowCanvas(
+    (event, region, handle) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeContextMenu();
+      setArmedRegionDrag(null);
+      const point = flowPositionFromEvent(event);
+      const originalRegion = {
+        x: Number(region.x || 0),
+        y: Number(region.y || 0),
+        width: Number(region.width || 0),
+        height: Number(region.height || 0),
+      };
+      setRegionResize({
+        regionId: region.id,
+        handle,
+        originalRegion,
+        bounds: resizeRegionBounds(originalRegion, handle, point),
+      });
+    },
+    [closeContextMenu, flowPositionFromEvent],
+  );
+
+  const handleRegionResizeMove = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!regionResize) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = flowPositionFromEvent(event);
+      setRegionResize((current) =>
+        current
+          ? {
+              ...current,
+              bounds: resizeRegionBounds(current.originalRegion, current.handle, point),
+            }
+          : current,
+      );
+    },
+    [flowPositionFromEvent, regionResize],
+  );
+
+  const completeRegionResize = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!regionResize) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = flowPositionFromEvent(event);
+      const nextBounds = resizeRegionBounds(
+        regionResize.originalRegion,
+        regionResize.handle,
+        point,
+      );
+      const finalRect = flowRectForRegion(nextBounds);
+      const finalLockNodeIds = flowNodes
+        .filter((node) => node?.data?.canvasVisible !== false)
+        .filter((node) => flowRectsIntersect(flowNodeRect(node), finalRect))
+        .map((node) => node.id);
+      onCanvasContextMenuAction?.({
+        action_id: "move_region",
+        target_kind: "region",
+        region_id: regionResize.regionId,
+        region_bounds: nextBounds,
+        node_updates: [],
+        lock_node_ids: Array.from(new Set(finalLockNodeIds)),
+      });
+      setRegionResize(null);
+      setArmedRegionResize(null);
+    },
+    [flowNodes, flowPositionFromEvent, onCanvasContextMenuAction, regionResize],
+  );
+
   useEffectReactFlowCanvas(() => {
     if (!selectionDrag) return undefined;
     window.addEventListener("mousemove", handleSelectionMouseMoveCapture);
@@ -1647,6 +1760,20 @@ function CanvasInner({
     completeRegionDrag,
     handleRegionDragMove,
     regionDrag,
+  ]);
+
+  useEffectReactFlowCanvas(() => {
+    if (!regionResize) return undefined;
+    window.addEventListener("mousemove", handleRegionResizeMove);
+    window.addEventListener("mouseup", completeRegionResize);
+    return () => {
+      window.removeEventListener("mousemove", handleRegionResizeMove);
+      window.removeEventListener("mouseup", completeRegionResize);
+    };
+  }, [
+    completeRegionResize,
+    handleRegionResizeMove,
+    regionResize,
   ]);
 
   useEffectReactFlowCanvas(() => {
@@ -1995,6 +2122,16 @@ function CanvasInner({
           mode: actionId === "drag_region_with_components" ? "with_components" : "marker",
         });
         setRegionDrag(null);
+        setArmedRegionResize(null);
+        setRegionResize(null);
+        closeContextMenu();
+        return;
+      }
+      if (actionId === "resize_region_marker") {
+        setArmedRegionResize({ regionId: menuContext.regionId || "" });
+        setRegionResize(null);
+        setArmedRegionDrag(null);
+        setRegionDrag(null);
         closeContextMenu();
         return;
       }
@@ -2136,6 +2273,8 @@ function CanvasInner({
       data-rectangle-selection-armed={rectangleSelectionArmed ? "true" : "false"}
       data-region-drag-armed={armedRegionDrag ? "true" : "false"}
       data-region-dragging={regionDrag ? "true" : "false"}
+      data-region-resize-armed={armedRegionResize ? "true" : "false"}
+      data-region-resizing={regionResize ? "true" : "false"}
       ref={flowWrapperRef}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -2158,9 +2297,9 @@ function CanvasInner({
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
-        nodesDraggable={!rectangleSelectionArmed && !regionDrag}
-        panOnDrag={!rectangleSelectionArmed && !regionDrag}
-        elementsSelectable={!rectangleSelectionArmed && !regionDrag}
+        nodesDraggable={!rectangleSelectionArmed && !regionDrag && !regionResize}
+        panOnDrag={!rectangleSelectionArmed && !regionDrag && !regionResize}
+        elementsSelectable={!rectangleSelectionArmed && !regionDrag && !regionResize}
         minZoom={0.1}
       >
         <Background />
@@ -2174,12 +2313,20 @@ function CanvasInner({
               className="canvas-region"
               data-armed={region.isArmedForDrag ? "true" : "false"}
               data-dragging={region.isDragging ? "true" : "false"}
+              data-resize-armed={region.isArmedForResize ? "true" : "false"}
+              data-resizing={region.isResizing ? "true" : "false"}
               data-summary={region.summary ? "true" : "false"}
               onMouseDown={(event) => handleRegionMouseDown(event, region)}
               onContextMenu={(event) => handleRegionContextMenu(event, region)}
               title={region.name || "Region"}
               style={{
-                ...regionStyleVars(region, region.isArmedForDrag || region.isDragging),
+                ...regionStyleVars(
+                  region,
+                  region.isArmedForDrag ||
+                    region.isDragging ||
+                    region.isArmedForResize ||
+                    region.isResizing,
+                ),
                 left: `${region.rect.x}px`,
                 top: `${region.rect.y}px`,
                 width: `${region.rect.width}px`,
@@ -2219,6 +2366,21 @@ function CanvasInner({
                   {region.name || "Region"}
                 </button>
               )}
+              {region.isArmedForResize || region.isResizing ? (
+                ["nw", "ne", "sw", "se"].map((handle) => (
+                  <button
+                    key={handle}
+                    type="button"
+                    className="canvas-region-resize-handle"
+                    data-handle={handle}
+                    aria-label={`Resize region ${handle}`}
+                    title="Resize region"
+                    onMouseDown={(event) =>
+                      handleRegionResizeMouseDown(event, region, handle)
+                    }
+                  />
+                ))
+              ) : null}
             </div>
           ))}
         </div>

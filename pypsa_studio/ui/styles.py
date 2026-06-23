@@ -331,11 +331,20 @@ def demo_styles() -> rx.Component:
             cursor: context-menu;
           }
           .canvas-region[data-armed="true"],
-          .canvas-region[data-dragging="true"] {
+          .canvas-region[data-dragging="true"],
+          .canvas-region[data-resize-armed="true"],
+          .canvas-region[data-resizing="true"] {
             box-shadow:
               0 0 0 2px color-mix(in srgb, var(--region-color, #2563eb) 38%, transparent),
               0 0 0 1px color-mix(in srgb, var(--region-color, #2563eb) 30%, transparent) inset;
+          }
+          .canvas-region[data-armed="true"],
+          .canvas-region[data-dragging="true"] {
             cursor: move;
+          }
+          .canvas-region[data-resize-armed="true"],
+          .canvas-region[data-resizing="true"] {
+            cursor: default;
           }
           .canvas-region-label {
             position: absolute;
@@ -362,6 +371,42 @@ def demo_styles() -> rx.Component:
           .canvas-region[data-dragging="true"] .canvas-region-label {
             cursor: move;
             font-weight: 600;
+          }
+          .canvas-region[data-resize-armed="true"] .canvas-region-label,
+          .canvas-region[data-resizing="true"] .canvas-region-label {
+            font-weight: 600;
+          }
+          .canvas-region-resize-handle {
+            position: absolute;
+            z-index: 2;
+            width: 12px;
+            height: 12px;
+            padding: 0;
+            border: 2px solid white;
+            border-radius: 50%;
+            background: var(--region-color, #2563eb);
+            box-shadow: 0 0 0 1px color-mix(in srgb, var(--region-color, #2563eb) 72%, black);
+            pointer-events: auto;
+          }
+          .canvas-region-resize-handle[data-handle="nw"] {
+            top: -6px;
+            left: -6px;
+            cursor: nwse-resize;
+          }
+          .canvas-region-resize-handle[data-handle="ne"] {
+            top: -6px;
+            right: -6px;
+            cursor: nesw-resize;
+          }
+          .canvas-region-resize-handle[data-handle="sw"] {
+            bottom: -6px;
+            left: -6px;
+            cursor: nesw-resize;
+          }
+          .canvas-region-resize-handle[data-handle="se"] {
+            right: -6px;
+            bottom: -6px;
+            cursor: nwse-resize;
           }
           .canvas-region-label-input {
             width: min(180px, max(92px, 100%));
