@@ -5,6 +5,7 @@
 .env.*
 .idea
 .jupyter
+.pyinstaller-cache/
 .reflex/
 .states
 .venv
@@ -13,6 +14,12 @@
 .web/
 __pycache__/
 assets/external/
+build/
+desktop/backend/
+desktop/frontend/
+desktop/node_modules/
+desktop/out/
+dist/
 exports
 reflex.lock
 uploaded_files

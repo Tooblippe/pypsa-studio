@@ -30,6 +30,7 @@ from pypsa_studio.constants import (
     CANVAS_HISTORY_LIMIT,
     CSV_TABLE_COMPONENTS,
     EDITABLE_CSV_UPLOAD_ID,
+    EXPORTS_DIR,
     FOLDER_UPLOAD_ID,
     JS_ELK_ROUTER_NAME,
     JUPYTER_EXECUTION_TIMEOUT_SECONDS,
@@ -2016,7 +2017,7 @@ class State(rx.State):
     save_network_folder: str = ""
     save_network_path: str = ""
     save_network_format: str = ""
-    export_base_folder: str = str(Path.cwd() / "exports")
+    export_base_folder: str = str(EXPORTS_DIR)
     export_message: str = ""
     export_error: str = ""
     is_network_name_dialog_open: bool = False

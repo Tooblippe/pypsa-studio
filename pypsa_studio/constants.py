@@ -1,5 +1,7 @@
 """Shared constants for the PyPSA Studio app."""
 
+import os
+import sys
 from pathlib import Path
 
 from pypsa_studio.network_model import build_network_model
@@ -49,16 +51,36 @@ SNAPSHOT_TABLE_INDEX_NAMES = {
     "snapshots": "",
     "investment_periods": "period",
 }
-APP_STATE_DIR = Path(".states")
+
+
+def resource_root() -> Path:
+    """Return the read-only project or PyInstaller resource root."""
+    frozen_root = getattr(sys, "_MEIPASS", "")
+    if frozen_root:
+        return Path(frozen_root)
+    return Path(__file__).resolve().parents[1]
+
+
+def user_data_root() -> Path:
+    """Return the writable app data root for desktop or local development."""
+    configured_root = os.environ.get("PYPSA_STUDIO_USER_DATA", "").strip()
+    if configured_root:
+        return Path(configured_root).expanduser()
+    return Path(".")
+
+
+PROJECT_ROOT = resource_root()
+USER_DATA_DIR = user_data_root()
+APP_STATE_DIR = USER_DATA_DIR / ".states"
 APP_SETTINGS_FILE = APP_STATE_DIR / "pypsa_network_builder_settings.json"
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEST_NETWORKS_DIR = PROJECT_ROOT / "test_networks"
 SUPPORTED_NETWORK_FILE_SUFFIXES = {".nc", ".h5", ".hdf5", ".zip"}
-JUPYTER_ROOT_DIR = PROJECT_ROOT / ".jupyter"
+JUPYTER_ROOT_DIR = USER_DATA_DIR / ".jupyter"
 JUPYTER_NOTEBOOKS_DIR = JUPYTER_ROOT_DIR / "notebooks"
 JUPYTER_RUNTIME_DIR = JUPYTER_ROOT_DIR / "runtime"
 JUPYTER_START_TIMEOUT_SECONDS = 30
 JUPYTER_EXECUTION_TIMEOUT_SECONDS = 180
 
-SETTINGS_DIR = Path(".settings")
+SETTINGS_DIR = USER_DATA_DIR / ".settings"
 SETTINGS_FILE = SETTINGS_DIR / "settings.toml"
+EXPORTS_DIR = USER_DATA_DIR / "exports"
