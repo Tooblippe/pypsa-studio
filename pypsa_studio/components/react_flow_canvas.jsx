@@ -78,14 +78,14 @@ function symbolMetaForComponent(component) {
 }
 
 function maxSideConnectionCount(handles) {
-  const sideCounts = { left: 0, right: 0 };
+  const sideCounts = { left: 0, right: 0, top: 0, bottom: 0 };
   (handles || []).forEach((handle) => {
     sideCounts[handle.side] = (sideCounts[handle.side] || 0) + 1;
   });
-  return Math.max(sideCounts.left, sideCounts.right);
+  return Math.max(sideCounts.left, sideCounts.right, sideCounts.top, sideCounts.bottom);
 }
 
-function busSymbolHeightForHandles(handles) {
+function busSymbolLengthForHandles(handles) {
   const maxSideCount = maxSideConnectionCount(handles);
   const connectionSpan = Math.max(0, maxSideCount - 1) * BUS_CONNECTION_SPACING_PX;
   return Math.max(BUS_MIN_HEIGHT_PX, connectionSpan + BUS_CONNECTION_PADDING_PX * 2);
@@ -191,6 +191,24 @@ function layoutBusSide(node) {
   return side === "left" || side === "right" ? side : "";
 }
 
+function layoutBusOrientation(node) {
+  const orientation = String(node?.layout?.bus_orientation || node?.data?.layout?.bus_orientation || "").toLowerCase();
+  return orientation === "horizontal" ? "horizontal" : "vertical";
+}
+
+function isHorizontalBus(node) {
+  return node?.component === "buses" && layoutBusOrientation(node) === "horizontal";
+}
+
+function visualMetaForNode(node, connectionHandles = []) {
+  const meta = symbolMetaForComponent(node?.component);
+  if (node?.component !== "buses") return meta;
+  const busLength = busSymbolLengthForHandles(connectionHandles);
+  return isHorizontalBus(node)
+    ? { width: busLength, height: meta.width }
+    : { width: meta.width, height: busLength };
+}
+
 function defaultIconSideForComponent(component) {
   const kind = componentToBuilderKind(component);
   if (kind === "generator") return "left";
@@ -205,7 +223,7 @@ function shouldRotateIconForBusSide(component, busSide) {
 
 function nodeCenter(node) {
   if (!node) return null;
-  const meta = symbolMetaForComponent(node.component);
+  const meta = visualMetaForNode(node);
   return {
     x: Number(node.position?.x || 0) + meta.width / 2,
     y: Number(node.position?.y || 0) + (meta.height + 20) / 2,
@@ -215,13 +233,28 @@ function nodeCenter(node) {
 function sideForBusConnection(busNode, otherNode, fallbackHandle) {
   const busCenter = nodeCenter(busNode);
   const otherCenter = nodeCenter(otherNode);
+  const fallbackSide = String(fallbackHandle || "").split("-")[0];
+  if (isHorizontalBus(busNode)) {
+    if (busCenter && otherCenter) {
+      const dx = otherCenter.x - busCenter.x;
+      const dy = otherCenter.y - busCenter.y;
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 1) {
+        return dy < 0 ? "top" : "bottom";
+      }
+    }
+    const busSide = layoutBusSide(otherNode);
+    if (busSide) return busSide === "left" ? "top" : "bottom";
+    if (fallbackSide === "top" || fallbackSide === "bottom") return fallbackSide;
+    return fallbackSide === "left" ? "top" : "bottom";
+  }
   if (busCenter && otherCenter) {
     const dx = otherCenter.x - busCenter.x;
     if (Math.abs(dx) > 1) {
       return dx < 0 ? "left" : "right";
     }
   }
-  return String(fallbackHandle || "").startsWith("left") ? "left" : "right";
+  if (fallbackSide === "left" || fallbackSide === "right") return fallbackSide;
+  return fallbackSide === "top" ? "left" : "right";
 }
 
 function oppositeSide(side) {
@@ -319,6 +352,9 @@ function buildBusConnectionRouting(nodes, edges) {
       return fallbackHandle;
     }
     const busSide = sideForBusConnection(otherNode, node, fallbackHandle);
+    if (busSide === "top" || busSide === "bottom") {
+      return fallbackHandle;
+    }
     return handleForSide(fallbackHandle, oppositeSide(busSide));
   };
 
@@ -341,7 +377,7 @@ function buildBusConnectionRouting(nodes, edges) {
       side,
       busNodeId,
       offsetPx: BUS_MIN_HEIGHT_PX / 2,
-      sortY: otherCenter?.y ?? 0,
+      sortAxis: side === "top" || side === "bottom" ? otherCenter?.x ?? 0 : otherCenter?.y ?? 0,
       sortIndex: handlesByBusId[busNodeId]?.length ?? 0,
     };
     handlesByBusId[busNodeId] = handlesByBusId[busNodeId] || [];
@@ -363,16 +399,16 @@ function buildBusConnectionRouting(nodes, edges) {
 
   handleGroups.forEach((group) => {
     group.sort((left, right) => {
-      const yDelta = left.sortY - right.sortY;
-      return Math.abs(yDelta) > 1 ? yDelta : left.sortIndex - right.sortIndex;
+      const axisDelta = left.sortAxis - right.sortAxis;
+      return Math.abs(axisDelta) > 1 ? axisDelta : left.sortIndex - right.sortIndex;
     });
     const count = group.length;
     const busNodeId = group[0]?.busNodeId;
-    const busHeight = busSymbolHeightForHandles(handlesByBusId[busNodeId] || []);
+    const busLength = busSymbolLengthForHandles(handlesByBusId[busNodeId] || []);
     const groupSpan = Math.max(0, count - 1) * BUS_CONNECTION_SPACING_PX;
-    const startY = count === 1 ? busHeight / 2 : (busHeight - groupSpan) / 2;
+    const startPosition = count === 1 ? busLength / 2 : (busLength - groupSpan) / 2;
     group.forEach((handle, index) => {
-      handle.offsetPx = count === 1 ? startY : startY + index * BUS_CONNECTION_SPACING_PX;
+      handle.offsetPx = count === 1 ? startPosition : startPosition + index * BUS_CONNECTION_SPACING_PX;
     });
   });
 
@@ -509,7 +545,8 @@ function SchematicNode({ data, selected }) {
   const updateNodeInternals = useUpdateNodeInternals();
   const symbolMeta = symbolMetaForComponent(data.component);
   const symbolHeight = Number(data.symbolHeight || symbolMeta.height);
-  const busSymbolHeight = Number(data.busSymbolHeight || BUILDER_SYMBOL_META.bus.height);
+  const busSymbolLength = Number(data.busSymbolLength || BUILDER_SYMBOL_META.bus.height);
+  const busOrientation = layoutBusOrientation({ data });
   const handleSignature = (data.connectionHandles || [])
     .map((handle) => `${handle.id}:${handle.offsetPx}`)
     .join("|");
@@ -518,9 +555,30 @@ function SchematicNode({ data, selected }) {
     if (data.isBus) {
       updateNodeInternals(data.nodeId);
     }
-  }, [busSymbolHeight, data.isBus, data.nodeId, handleSignature, updateNodeInternals]);
+  }, [busOrientation, busSymbolLength, data.isBus, data.nodeId, handleSignature, updateNodeInternals]);
 
-  const busHandleTop = (handle) => Number(handle.offsetPx || busSymbolHeight / 2);
+  const busHandleOffset = (handle) => Number(handle.offsetPx || busSymbolLength / 2);
+  const busHandlePosition = (side) => {
+    if (side === "top") return Position.Top;
+    if (side === "bottom") return Position.Bottom;
+    return side === "left" ? Position.Left : Position.Right;
+  };
+  const busHandleStyle = (handle) => {
+    const offsetPx = busHandleOffset(handle);
+    if (handle.side === "top" || handle.side === "bottom") {
+      return {
+        left: `${offsetPx}px`,
+        top: `${BUILDER_SYMBOL_META.bus.width / 2}px`,
+        bottom: "auto",
+        transform: "translate(-50%, -50%)",
+      };
+    }
+    return {
+      top: `${offsetPx}px`,
+      left: "50%",
+      transform: "translate(-50%, -50%)",
+    };
+  };
   const iconHandleTop = symbolHeight / 2;
   const leftContact = `${iconContactPercent(data.component, "left")}%`;
   const rightContact = `${iconContactPercent(data.component, "right")}%`;
@@ -560,6 +618,7 @@ function SchematicNode({ data, selected }) {
     <div
       className="schematic-node"
       data-is-bus={data.isBus ? "true" : "false"}
+      data-bus-orientation={data.isBus ? busOrientation : ""}
       data-selected={selected ? "true" : "false"}
       data-layout-locked={data.layoutLocked ? "true" : "false"}
       data-branch-armed={data.branchArmed && data.isBus ? "true" : "false"}
@@ -582,18 +641,23 @@ function SchematicNode({ data, selected }) {
           id={handle.id}
           key={handle.id}
           type={handle.type}
-          position={handle.side === "left" ? Position.Left : Position.Right}
-          style={{
-            top: `${busHandleTop(handle)}px`,
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-          }}
+          position={busHandlePosition(handle.side)}
+          style={busHandleStyle(handle)}
         />
       ))}
       {data.isBus ? (
         <span
           className="schematic-bus-symbol"
-          style={{ height: `${busSymbolHeight}px` }}
+          style={
+            busOrientation === "horizontal"
+              ? {
+                  width: `${busSymbolLength}px`,
+                  height: "3px",
+                  minHeight: "3px",
+                  marginTop: `${(BUILDER_SYMBOL_META.bus.width - 3) / 2}px`,
+                }
+              : { height: `${busSymbolLength}px` }
+          }
         />
       ) : data.iconSvg ? (
         <span className="schematic-symbol-layer" style={symbolLayerStyle}>
@@ -629,6 +693,12 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
     label: (contextMenu) =>
       contextMenu?.isLocked ? "Unlock position" : "Lock in place",
     targetKinds: ["component"],
+  },
+  {
+    id: "rotate_bus",
+    label: "Rotate 90 degrees",
+    targetKinds: ["component"],
+    hidden: (contextMenu) => contextMenu?.component !== "buses",
   },
   {
     id: "hide",
@@ -1142,14 +1212,15 @@ function CanvasInner({
         const meta = symbolMetaForComponent(node.component);
         const label = displayNameForNode(node);
         const connectionHandles = node.component === "buses" ? edgeRouting.handlesByBusId[node.id] || [] : [];
-        const symbolHeight = node.component === "buses" ? busSymbolHeightForHandles(connectionHandles) : meta.height;
+        const visualMeta = visualMetaForNode(node, connectionHandles);
+        const busSymbolLength = node.component === "buses" ? busSymbolLengthForHandles(connectionHandles) : meta.height;
         return {
           id: node.id,
           type: "schematic",
           position: node.position,
           style: {
-            width: `${meta.width}px`,
-            height: `${symbolHeight + BUS_LABEL_HEIGHT}px`,
+            width: `${visualMeta.width}px`,
+            height: `${visualMeta.height + BUS_LABEL_HEIGHT}px`,
           },
           data: {
             nodeId: node.id,
@@ -1169,7 +1240,7 @@ function CanvasInner({
             hoverBusId: isConnectionDrag ? hoverBusId : "",
             branchBus0NodeId,
             symbolHeight: meta.height,
-            busSymbolHeight: symbolHeight,
+            busSymbolLength,
             connectionHandles,
             iconSrc: node.icon_src,
             iconSvg: node.icon_svg,
@@ -2038,6 +2109,7 @@ function CanvasInner({
         targetKind: "component",
         targetId: node.id,
         nodeId: node.id,
+        component: node?.data?.component || "",
         isLocked: Boolean(node?.data?.layoutLocked),
         x: position.x,
         y: position.y,

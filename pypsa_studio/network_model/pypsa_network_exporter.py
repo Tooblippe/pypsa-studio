@@ -301,6 +301,9 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
             bus_side = str(layout.get("bus_side", "")).strip().lower()
             if bus_side in {"left", "right"}:
                 position_entry["bus_side"] = bus_side
+            bus_orientation = str(layout.get("bus_orientation", "")).strip().lower()
+            if bus_orientation == "horizontal":
+                position_entry["bus_orientation"] = bus_orientation
             if bool(layout.get("locked")):
                 position_entry["locked"] = True
             if layout.get("visible") is False:

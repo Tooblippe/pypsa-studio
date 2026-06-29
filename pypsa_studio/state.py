@@ -1326,6 +1326,9 @@ def load_layout_positions(
         bus_side = normalize_bus_side(entry.get("bus_side"))
         if bus_side:
             layout_entry["bus_side"] = bus_side
+        bus_orientation = normalize_bus_orientation(entry.get("bus_orientation"))
+        if bus_orientation == "horizontal":
+            layout_entry["bus_orientation"] = bus_orientation
         if bool(entry.get("locked")):
             layout_entry["locked"] = True
         if entry.get("visible") is False:
@@ -1415,6 +1418,11 @@ def apply_layout_positions(
                 layout = node.setdefault("layout", {})
                 if isinstance(layout, dict):
                     layout["bus_side"] = bus_side
+            bus_orientation = normalize_bus_orientation(position.get("bus_orientation"))
+            if bus_orientation == "horizontal":
+                layout = node.setdefault("layout", {})
+                if isinstance(layout, dict):
+                    layout["bus_orientation"] = bus_orientation
             if bool(position.get("locked")):
                 layout = node.setdefault("layout", {})
                 if isinstance(layout, dict):
@@ -1704,6 +1712,12 @@ def normalize_bus_side(value: object) -> str:
     """Return a valid bus side value or an empty string."""
     side = str(value or "").strip().lower()
     return side if side in {"left", "right"} else ""
+
+
+def normalize_bus_orientation(value: object) -> str:
+    """Return a valid bus orientation value or the default vertical value."""
+    orientation = str(value or "").strip().lower()
+    return "horizontal" if orientation == "horizontal" else "vertical"
 
 
 def is_canvas_visible(node: DiagramNode | dict[str, object]) -> bool:
@@ -5709,6 +5723,30 @@ Last_path = "~"
                 )
                 return
 
+    def rotate_bus_node(self, node_id: str) -> None:
+        """Toggle a bus between vertical and horizontal canvas orientation."""
+        target_node_id = str(node_id)
+        for node in self.diagram_nodes:
+            if node["id"] != target_node_id:
+                continue
+            if node.get("hidden") or node["component"] != "buses":
+                return
+
+            self._push_canvas_history()
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            if normalize_bus_orientation(layout.get("bus_orientation")) == "horizontal":
+                layout.pop("bus_orientation", None)
+            else:
+                layout["bus_orientation"] = "horizontal"
+            self._mark_network_dirty()
+            self._sync_diagram_model()
+            if self.selected_node_id == target_node_id:
+                self.select_node(target_node_id)
+            return
+
     def lock_all_canvas_components(self) -> None:
         """Lock every visible canvas component at its current position."""
         lockable_nodes = [
@@ -6377,6 +6415,7 @@ Last_path = "~"
             "select",
             "delete",
             "toggle_lock",
+            "rotate_bus",
             "hide",
             "lock_selection",
             "mark_regions",
@@ -6453,6 +6492,10 @@ Last_path = "~"
 
         if action_id == "toggle_lock" and target_kind == "component":
             self.toggle_node_layout_locked(node_id)
+            return
+
+        if action_id == "rotate_bus" and target_kind == "component":
+            self.rotate_bus_node(node_id)
             return
 
         if action_id == "hide":
