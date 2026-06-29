@@ -583,6 +583,16 @@ def demo_styles() -> rx.Component:
           .react-flow__edge.schematic-branch-edge:hover .react-flow__edge-path {
             stroke: #2563eb !important;
           }
+          .schematic-edge-drag-handle {
+            fill: none;
+            stroke: transparent;
+            stroke-width: 18;
+            pointer-events: none;
+          }
+          .schematic-edge-drag-handle[data-selected="true"] {
+            cursor: move;
+            pointer-events: stroke;
+          }
           .schematic-branch-target-arrow {
             position: absolute;
             z-index: 4;

@@ -308,6 +308,16 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
                 position_entry["locked"] = True
             if layout.get("visible") is False:
                 position_entry["visible"] = False
+            try:
+                edge_offset_x = float(layout.get("edge_offset_x", 0))
+                edge_offset_y = float(layout.get("edge_offset_y", 0))
+            except TypeError, ValueError:
+                edge_offset_x = 0.0
+                edge_offset_y = 0.0
+            if edge_offset_x:
+                position_entry["edge_offset_x"] = edge_offset_x
+            if edge_offset_y:
+                position_entry["edge_offset_y"] = edge_offset_y
         positions.append(position_entry)
 
     for region in diagram_model.get("regions", []):

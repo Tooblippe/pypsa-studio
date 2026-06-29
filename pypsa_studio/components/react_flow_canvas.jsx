@@ -468,6 +468,28 @@ function branchTargetArrowStyle(targetX, targetY, targetPosition) {
   };
 }
 
+/**
+ * Return a numeric edge offset from serialized edge data.
+ */
+function edgeOffsetFromData(data) {
+  return {
+    x: Number(data?.edgeOffset?.x || 0),
+    y: Number(data?.edgeOffset?.y || 0),
+  };
+}
+
+/**
+ * Return a smooth step path shifted by the manual edge offset.
+ */
+function offsetSmoothStepPath(pathParams, edgeOffset) {
+  const [, baseLabelX, baseLabelY] = getSmoothStepPath(pathParams);
+  return getSmoothStepPath({
+    ...pathParams,
+    centerX: baseLabelX + Number(edgeOffset.x || 0),
+    centerY: baseLabelY + Number(edgeOffset.y || 0),
+  });
+}
+
 function SchematicStepEdge({
   id,
   sourceX,
@@ -483,7 +505,9 @@ function SchematicStepEdge({
   data = {},
   selected,
 }) {
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const reactFlow = useReactFlow();
+  const [dragOffset, setDragOffset] = useStateReactFlowCanvas(null);
+  const pathParams = {
     sourceX,
     sourceY,
     sourcePosition,
@@ -491,7 +515,13 @@ function SchematicStepEdge({
     targetY,
     targetPosition,
     borderRadius: 0,
-  });
+  };
+  const savedOffset = edgeOffsetFromData(data);
+  const effectiveOffset = dragOffset || savedOffset;
+  const [edgePath, labelX, labelY] = offsetSmoothStepPath(
+    pathParams,
+    effectiveOffset,
+  );
   const rotateLabel = Boolean(label) && shouldRotateStepEdgeLabel(
     sourceY,
     targetY,
@@ -501,6 +531,50 @@ function SchematicStepEdge({
   const labelOffset = edgeLabelOffset(rotateLabel);
   const showEdgeSymbol = shouldRenderEdgeSymbol(data.component) && data.iconSrc;
   const showBranchTargetArrow = isBranchEdgeComponent(data.component);
+  const handleEdgePointerDown = useCallbackReactFlowCanvas(
+    (event) => {
+      if (!selected || event.button !== 0 || !data.componentNodeId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const startClient = { x: event.clientX, y: event.clientY };
+      const startOffset = edgeOffsetFromData(data);
+      const zoom = reactFlow.getViewport?.().zoom || 1;
+      let latestOffset = startOffset;
+      let moved = false;
+
+      const handlePointerMove = (moveEvent) => {
+        moveEvent.preventDefault();
+        const nextOffset = {
+          x: startOffset.x + (moveEvent.clientX - startClient.x) / zoom,
+          y: startOffset.y + (moveEvent.clientY - startClient.y) / zoom,
+        };
+        moved =
+          moved ||
+          Math.abs(nextOffset.x - startOffset.x) > 0.5 ||
+          Math.abs(nextOffset.y - startOffset.y) > 0.5;
+        latestOffset = nextOffset;
+        setDragOffset(nextOffset);
+      };
+
+      const handlePointerUp = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("pointercancel", handlePointerUp);
+        setDragOffset(null);
+        if (!moved) return;
+        data.onEdgeOffsetChange?.({
+          node_id: data.componentNodeId,
+          edge_offset_x: latestOffset.x,
+          edge_offset_y: latestOffset.y,
+        });
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("pointercancel", handlePointerUp);
+    },
+    [data, reactFlow, selected],
+  );
 
   return (
     <>
@@ -510,6 +584,12 @@ function SchematicStepEdge({
         markerEnd={markerEnd}
         markerStart={markerStart}
         style={style}
+      />
+      <path
+        className="schematic-edge-drag-handle"
+        d={edgePath}
+        data-selected={selected ? "true" : "false"}
+        onPointerDown={handleEdgePointerDown}
       />
       {showBranchTargetArrow ? (
         <EdgeLabelRenderer>
@@ -743,7 +823,7 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
   {
     id: "select",
     label: "Select",
-    targetKinds: ["component", "branch"],
+    targetKinds: ["component", "branch", "edge"],
   },
   {
     id: "toggle_lock",
@@ -760,7 +840,13 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
   {
     id: "hide",
     label: "Hide",
-    targetKinds: ["component", "branch", "selection"],
+    targetKinds: ["component", "branch", "edge", "selection"],
+  },
+  {
+    id: "reset_edge_offset",
+    label: "Reset edge offset",
+    targetKinds: ["edge"],
+    hidden: (contextMenu) => !Boolean(contextMenu?.hasEdgeOffset),
   },
   {
     id: "lock_selection",
@@ -817,7 +903,7 @@ const CANVAS_CONTEXT_MENU_ITEMS = [
   {
     id: "delete",
     label: "Delete",
-    targetKinds: ["component", "branch", "region"],
+    targetKinds: ["component", "branch", "edge", "region"],
   },
 ];
 
@@ -833,6 +919,7 @@ function canvasContextTargetLabel(contextMenu) {
   if (!contextMenu?.targetKind) return "";
   if (contextMenu.targetKind === "selection") return "Selection";
   if (contextMenu.targetKind === "region") return "Region";
+  if (contextMenu.targetKind === "edge") return "Edge";
   return contextMenu.targetKind === "branch" ? "Branch" : "Component";
 }
 
@@ -1192,6 +1279,7 @@ function CanvasInner({
   regions = [],
   routeVersion = 0,
   fitViewVersion = 0,
+  selectedNodeId = "",
   armedComponent = "",
   armedBranchComponent = "",
   branchBus0NodeId = "",
@@ -1200,6 +1288,7 @@ function CanvasInner({
   onNodeSelect,
   onBranchBusClick,
   onEdgeSelect,
+  onEdgeOffsetUpdate,
   onNodesUpdate,
   onRouteComplete,
   onCanvasContextMenuAction,
@@ -1337,18 +1426,22 @@ function CanvasInner({
     () => {
       return edgeRouting.edges.map((edge) => ({
         ...edge,
+        selected: edge.attrs?.component_node_id === selectedNodeId,
         className: isBranchEdgeComponent(edge.component)
           ? "schematic-branch-edge"
           : "",
         data: {
           ...(edge.data || {}),
           component: edge.component || "",
+          componentNodeId: edge.attrs?.component_node_id || "",
+          edgeOffset: edge.edge_offset || { x: 0, y: 0 },
           iconSrc: edge.icon_src || "",
           iconSvg: edge.icon_svg || "",
+          onEdgeOffsetChange: onEdgeOffsetUpdate,
         },
       }));
     },
-    [edgeRouting.edges],
+    [edgeRouting.edges, onEdgeOffsetUpdate, selectedNodeId],
   );
 
   useEffectReactFlowCanvas(() => {
@@ -2182,13 +2275,14 @@ function CanvasInner({
       if (rectangleSelectionArmed) return;
       if (armedBranchComponent) return;
       const componentNodeId = edge?.attrs?.component_node_id;
-      if (!isBranchEdgeComponent(edge?.component)) return;
       if (!componentNodeId) return;
+      const edgeOffset = edge?.data?.edgeOffset || {};
       const position = contextMenuPositionFromEvent(event);
       setContextMenu({
-        targetKind: "branch",
+        targetKind: "edge",
         targetId: edge.id,
         nodeId: componentNodeId,
+        hasEdgeOffset: Boolean(edgeOffset.x || edgeOffset.y),
         x: position.x,
         y: position.y,
       });

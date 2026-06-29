@@ -600,6 +600,7 @@ def builder_tab() -> rx.Component:
                         regions=State.canvas_regions,
                         route_version=State.route_version,
                         fit_view_version=State.fit_view_version,
+                        selected_node_id=State.selected_node_id,
                         armed_component=State.armed_component,
                         armed_branch_component=State.armed_branch_component,
                         branch_bus0_node_id=State.branch_bus0_node_id,
@@ -608,6 +609,7 @@ def builder_tab() -> rx.Component:
                         on_node_select=State.select_node,
                         on_branch_bus_click=State.handle_branch_bus_click,
                         on_edge_select=State.select_node,
+                        on_edge_offset_update=State.update_edge_offset,
                         on_nodes_update=State.update_node_positions,
                         on_route_complete=State.finish_auto_route,
                         on_canvas_context_menu_action=(

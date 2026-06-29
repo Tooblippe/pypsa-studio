@@ -59,6 +59,7 @@ class DiagramEdge(TypedDict):
     icon_src: str | None
     icon_svg: str | None
     style: dict[str, object]
+    edge_offset: dict[str, float]
     attrs: dict[str, object]
 
 

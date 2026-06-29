@@ -1393,6 +1393,19 @@ def normalize_canvas_region_color(value: object) -> str:
     return DEFAULT_CANVAS_REGION_COLOR
 
 
+def edge_offset_from_layout(layout: object) -> dict[str, float]:
+    """Return the manual edge offset stored on a component layout."""
+    if not isinstance(layout, dict):
+        return {"x": 0.0, "y": 0.0}
+    try:
+        return {
+            "x": float(layout.get("edge_offset_x", 0)),
+            "y": float(layout.get("edge_offset_y", 0)),
+        }
+    except TypeError, ValueError:
+        return {"x": 0.0, "y": 0.0}
+
+
 def apply_layout_positions(
     diagram_nodes: list[DiagramNode],
     layout_positions: dict[tuple[str, str], dict[str, object]],
@@ -1431,6 +1444,12 @@ def apply_layout_positions(
                 layout = node.setdefault("layout", {})
                 if isinstance(layout, dict):
                     layout["visible"] = False
+            edge_offset = edge_offset_from_layout(position)
+            if edge_offset["x"] or edge_offset["y"]:
+                layout = node.setdefault("layout", {})
+                if isinstance(layout, dict):
+                    layout["edge_offset_x"] = edge_offset["x"]
+                    layout["edge_offset_y"] = edge_offset["y"]
     apply_bus_side_layout_from_positions(diagram_nodes)
 
 
@@ -4531,6 +4550,11 @@ Last_path = "~"
                     and "locked" not in next_layout
                 ):
                     next_layout["locked"] = True
+                if isinstance(current_layout, dict):
+                    edge_offset = edge_offset_from_layout(current_layout)
+                    if edge_offset["x"] or edge_offset["y"]:
+                        next_layout["edge_offset_x"] = edge_offset["x"]
+                        next_layout["edge_offset_y"] = edge_offset["y"]
                 current_node["layout"] = next_layout
             if isinstance(routed_node.get("hidden"), bool):
                 current_node["hidden"] = bool(routed_node["hidden"])
@@ -6425,9 +6449,10 @@ Last_path = "~"
             "move_region",
             "hide_region_summary",
             "unhide_region_summary",
+            "reset_edge_offset",
         }:
             return
-        if target_kind not in {"component", "branch", "selection", "region"}:
+        if target_kind not in {"component", "branch", "edge", "selection", "region"}:
             return
         if action_id == "finish_rectangle_selection":
             self.rectangle_selection_armed = False
@@ -6500,6 +6525,52 @@ Last_path = "~"
 
         if action_id == "hide":
             self.set_node_canvas_visible(node_id, False)
+
+        if action_id == "reset_edge_offset" and target_kind == "edge":
+            self.reset_edge_offset(node_id)
+
+    def update_edge_offset(self, payload: dict[str, object]) -> None:
+        """Persist a manual edge offset on the backing component node layout."""
+        node_id = str(payload.get("node_id", ""))
+        try:
+            offset_x = float(payload.get("edge_offset_x", 0))
+            offset_y = float(payload.get("edge_offset_y", 0))
+        except TypeError, ValueError:
+            return
+        self.set_edge_offset(node_id, offset_x, offset_y)
+
+    def reset_edge_offset(self, node_id: str) -> None:
+        """Clear a manual edge offset from the backing component node layout."""
+        self.set_edge_offset(node_id, 0.0, 0.0)
+
+    def set_edge_offset(self, node_id: str, offset_x: float, offset_y: float) -> None:
+        """Set a manual edge offset and rebuild derived canvas data."""
+        target_node_id = str(node_id)
+        rounded_x = round(float(offset_x), 1)
+        rounded_y = round(float(offset_y), 1)
+        if abs(rounded_x) < 0.5:
+            rounded_x = 0.0
+        if abs(rounded_y) < 0.5:
+            rounded_y = 0.0
+        for node in self.diagram_nodes:
+            if node["id"] != target_node_id:
+                continue
+            layout = node.setdefault("layout", {})
+            if not isinstance(layout, dict):
+                layout = {}
+                node["layout"] = layout
+            current = edge_offset_from_layout(layout)
+            if current["x"] == rounded_x and current["y"] == rounded_y:
+                return
+            self._push_canvas_history()
+            if rounded_x or rounded_y:
+                layout["edge_offset_x"] = rounded_x
+                layout["edge_offset_y"] = rounded_y
+            else:
+                layout.pop("edge_offset_x", None)
+                layout.pop("edge_offset_y", None)
+            self._sync_diagram_model()
+            return
 
     def delete_selected_node(self) -> None:
         """Delete the selected component and rebuild derived canvas data."""
@@ -6731,6 +6802,7 @@ Last_path = "~"
                 "icon_src": edge.get("icon_src", ""),
                 "icon_svg": edge.get("icon_svg", ""),
                 "style": edge["style"],
+                "edge_offset": edge.get("edge_offset", {"x": 0.0, "y": 0.0}),
                 "attrs": edge["attrs"],
             }
             for edge in self.diagram_edges
@@ -6829,6 +6901,9 @@ Last_path = "~"
                             "icon_src": node.get("icon_src", ""),
                             "icon_svg": node.get("icon_svg", ""),
                             "style": branch_style,
+                            "edge_offset": edge_offset_from_layout(
+                                node.get("layout", {})
+                            ),
                             "attrs": {
                                 "component_node_id": node["id"],
                                 "bus0": attrs.get("bus0"),
@@ -6872,6 +6947,7 @@ Last_path = "~"
                         "icon_src": "",
                         "icon_svg": "",
                         "style": {},
+                        "edge_offset": edge_offset_from_layout(node.get("layout", {})),
                         "attrs": {
                             "component_node_id": node["id"],
                             "bus": bus_name,
