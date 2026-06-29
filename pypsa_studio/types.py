@@ -164,6 +164,7 @@ class NetworkDataColumn(TypedDict):
     is_time_series: bool
     is_bus_reference: bool
     options: list[str]
+    filter_value: str
 
 
 class NetworkDataCell(TypedDict):
@@ -195,6 +196,11 @@ class NetworkDataTab(TypedDict):
     columns: list[NetworkDataColumn]
     rows: list[NetworkDataRow]
     row_count: int
+    filtered_row_count: int
+    page_index: int
+    page_count: int
+    page_start: int
+    page_end: int
 
 
 class NetworkDataComponentSetting(TypedDict):

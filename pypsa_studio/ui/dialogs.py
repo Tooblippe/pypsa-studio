@@ -735,6 +735,109 @@ def network_data_option_item(option: rx.Var[str]) -> rx.Component:
     return rx.select.item(option, value=option)
 
 
+def network_data_column_filter(column: rx.Var[NetworkDataColumn]) -> rx.Component:
+    """Render one Network Data text column filter."""
+    return rx.input(
+        value=column["filter_value"].to(str),
+        placeholder=column["name"],
+        on_change=lambda value: State.set_network_data_column_filter(
+            column["name"],
+            value,
+        ),
+        width="140px",
+        height="28px",
+        size="1",
+        class_name="network-data-control",
+    )
+
+
+def network_data_page_size_select() -> rx.Component:
+    """Render the Network Data page-size selector."""
+    return rx.select.root(
+        rx.select.trigger(width="80px", height="28px"),
+        rx.select.content(
+            rx.select.item("50", value="50"),
+            rx.select.item("100", value="100"),
+            rx.select.item("250", value="250"),
+            rx.select.item("500", value="500"),
+        ),
+        value=State.network_data_page_size.to(str),
+        on_change=State.set_network_data_page_size,
+    )
+
+
+def network_data_table_controls(tab: rx.Var[NetworkDataTab]) -> rx.Component:
+    """Render Network Data paging and filter controls."""
+    return rx.vstack(
+        rx.hstack(
+            rx.input(
+                value=State.network_data_row_query,
+                placeholder="Search names",
+                on_change=State.set_network_data_row_query,
+                width="220px",
+                height="28px",
+                size="1",
+                class_name="network-data-control",
+            ),
+            rx.text("Rows", size="1", color_scheme="gray"),
+            network_data_page_size_select(),
+            rx.spacer(),
+            rx.text(
+                tab["page_start"].to(str),
+                "-",
+                tab["page_end"].to(str),
+                " of ",
+                tab["filtered_row_count"].to(str),
+                size="1",
+                color_scheme="gray",
+                white_space="nowrap",
+            ),
+            rx.button(
+                rx.icon("chevron-left", size=14),
+                aria_label="Previous page",
+                title="Previous page",
+                on_click=State.previous_network_data_page,
+                disabled=tab["page_index"] <= 0,
+                variant="soft",
+                size="1",
+            ),
+            rx.button(
+                rx.icon("chevron-right", size=14),
+                aria_label="Next page",
+                title="Next page",
+                on_click=State.next_network_data_page,
+                disabled=tab["page_index"] >= tab["page_count"] - 1,
+                variant="soft",
+                size="1",
+            ),
+            rx.button(
+                "Clear",
+                on_click=State.clear_network_data_filters,
+                variant="ghost",
+                size="1",
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+        ),
+        rx.box(
+            rx.hstack(
+                rx.foreach(tab["columns"], network_data_column_filter),
+                spacing="2",
+                align="center",
+                width="max-content",
+            ),
+            width="100%",
+            overflow_x="auto",
+            padding_bottom="2px",
+        ),
+        spacing="2",
+        align="stretch",
+        width="100%",
+        flex_shrink="0",
+    )
+
+
 def network_data_bus_select(cell: rx.Var[NetworkDataCell]) -> rx.Component:
     """Render a bus reference selector in the Network Data grid."""
     return rx.select.root(
@@ -921,6 +1024,7 @@ def network_data_row(row: rx.Var[NetworkDataRow]) -> rx.Component:
 def network_data_table(tab: rx.Var[NetworkDataTab]) -> rx.Component:
     """Render one Network Data component table."""
     return rx.vstack(
+        network_data_table_controls(tab),
         rx.cond(
             tab["row_count"] == 0,
             rx.text(

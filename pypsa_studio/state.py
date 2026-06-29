@@ -127,6 +127,7 @@ FILE_PICKER_SAVE_FORMATS = {"csv", "netcdf", "hdf5"}
 FILE_PICKER_SUPPORTED_SUFFIXES = {".nc", ".h5", ".hdf5"}
 NETWORK_DATA_SETTINGS_SECTION = "network_data"
 NETWORK_DATA_SETTINGS_COMPONENTS_KEY = "components"
+NETWORK_DATA_PAGE_SIZE_OPTIONS = [50, 100, 250, 500]
 NETWORK_DATA_EXTRA_COMPONENT_LABELS = {
     "snapshots": "Snapshots",
     "investment_periods": "Investment Periods",
@@ -1518,6 +1519,7 @@ def network_data_column_for_attr(
         or "series" in str(attr.pypsa_type).lower(),
         "is_bus_reference": is_bus_reference_attr(attr_name),
         "options": options,
+        "filter_value": "",
     }
 
 
@@ -1533,6 +1535,7 @@ def network_data_columns(component_name: str) -> list[NetworkDataColumn]:
                 "is_time_series": False,
                 "is_bus_reference": False,
                 "options": [],
+                "filter_value": "",
             }
             for column_name in SNAPSHOT_TABLE_COLUMNS[component_name]
         ]
@@ -2074,6 +2077,10 @@ class State(rx.State):
     is_network_data_dialog_open: bool = False
     network_data_active_component: str = "buses"
     network_data_tabs: list[NetworkDataTab] = []
+    network_data_page_index: int = 0
+    network_data_page_size: int = 100
+    network_data_row_query: str = ""
+    network_data_column_filters: dict[str, str] = {}
     is_carrier_visibility_dialog_open: bool = False
     carrier_visibility_rows: list[CarrierVisibilityRow] = []
     visible_canvas_carriers: list[str] = []
@@ -2096,6 +2103,9 @@ class State(rx.State):
         self.time_series_tables = {}
         self.is_network_data_dialog_open = False
         self.network_data_tabs = []
+        self.network_data_page_index = 0
+        self.network_data_row_query = ""
+        self.network_data_column_filters = {}
         self.is_carrier_visibility_dialog_open = False
         self.carrier_visibility_rows = []
         self.visible_canvas_carriers = []
@@ -2610,26 +2620,133 @@ Last_path = "~"
                     return True
         return False
 
-    def _network_data_canvas_rows(self, component_name: str) -> list[NetworkDataRow]:
-        """Build Network Data rows from diagram nodes."""
-        columns = network_data_columns(component_name)
-        rows: list[NetworkDataRow] = []
-        component = NETWORK_MODEL.component(component_name)
+    def _network_data_canvas_row_refs(
+        self, component_name: str
+    ) -> list[dict[str, object]]:
+        """Return lightweight Network Data row references from diagram nodes."""
+        refs: list[dict[str, object]] = []
         for row_index, node in enumerate(
             node for node in self.diagram_nodes if node["component"] == component_name
         ):
             attrs = node.get("attrs", {})
-            row_name = str(attrs.get("name") or node["id"])
+            refs.append(
+                {
+                    "row_id": str(node["id"]),
+                    "row_index": row_index,
+                    "name": str(attrs.get("name") or node["id"]),
+                    "values": attrs,
+                }
+            )
+        return refs
+
+    def _network_data_table_row_refs(
+        self, component_name: str
+    ) -> list[dict[str, object]]:
+        """Return lightweight Network Data row references from backing tables."""
+        table = self._ensure_network_data_table(component_name)
+        refs: list[dict[str, object]] = []
+        for row in table["rows"]:
+            refs.append(
+                {
+                    "row_id": str(row["id"]),
+                    "row_index": int(row["row_index"]),
+                    "name": str(row["id"]),
+                    "values": {
+                        str(cell["column"]): cell["value"] for cell in row["cells"]
+                    },
+                }
+            )
+        return refs
+
+    def _network_data_row_refs(self, component_name: str) -> list[dict[str, object]]:
+        """Return lightweight rows for one Network Data component."""
+        if is_canvas_data_component(component_name):
+            return self._network_data_canvas_row_refs(component_name)
+        return self._network_data_table_row_refs(component_name)
+
+    def _network_data_row_count(self, component_name: str) -> int:
+        """Return row count without building editable cell state."""
+        if is_canvas_data_component(component_name):
+            return sum(
+                1 for node in self.diagram_nodes if node["component"] == component_name
+            )
+        return len(self._ensure_network_data_table(component_name)["rows"])
+
+    def _network_data_active_filters(self, columns: list[NetworkDataColumn]) -> dict:
+        """Return non-empty filters for the active Network Data component."""
+        filters = {"name": self.network_data_row_query.strip().lower(), "columns": {}}
+        column_filters: dict[str, str] = {}
+        for column in columns:
+            value = self.network_data_column_filters.get(column["name"], "").strip()
+            if value:
+                column_filters[column["name"]] = value.lower()
+        filters["columns"] = column_filters
+        return filters
+
+    def _network_data_filtered_refs(
+        self,
+        refs: list[dict[str, object]],
+        filters: dict,
+    ) -> list[dict[str, object]]:
+        """Return refs matching the current row-name and column filters."""
+        name_filter = str(filters["name"])
+        column_filters = filters["columns"]
+        if not name_filter and not column_filters:
+            return refs
+        filtered_refs: list[dict[str, object]] = []
+        for ref in refs:
+            if name_filter and name_filter not in str(ref["name"]).lower():
+                continue
+            values = ref["values"]
+            if not isinstance(values, dict):
+                continue
+            if any(
+                needle not in str(values.get(column_name, "")).lower()
+                for column_name, needle in column_filters.items()
+            ):
+                continue
+            filtered_refs.append(ref)
+        return filtered_refs
+
+    def _network_data_page_size(self) -> int:
+        """Return a valid Network Data page size."""
+        if self.network_data_page_size in NETWORK_DATA_PAGE_SIZE_OPTIONS:
+            return self.network_data_page_size
+        return 100
+
+    def _clamp_network_data_page_index(self, row_count: int) -> int:
+        """Clamp the active Network Data page index to available rows."""
+        page_size = self._network_data_page_size()
+        page_count = max(1, (row_count + page_size - 1) // page_size)
+        page_index = min(max(0, self.network_data_page_index), page_count - 1)
+        self.network_data_page_index = page_index
+        return page_index
+
+    def _network_data_rows_from_refs(
+        self,
+        component_name: str,
+        columns: list[NetworkDataColumn],
+        refs: list[dict[str, object]],
+    ) -> list[NetworkDataRow]:
+        """Build editable Network Data rows for the current visible page."""
+        rows: list[NetworkDataRow] = []
+        component = NETWORK_MODEL.all_components.get(component_name)
+        for ref in refs:
+            values = ref["values"]
+            if not isinstance(values, dict):
+                continue
             cells: list[NetworkDataCell] = []
+            row_name = str(ref["name"])
             for column in columns:
                 attr_name = column["name"]
-                attr = component.attrs[attr_name]
-                value = attrs.get(attr_name, attr.default)
+                attr = component.attrs.get(attr_name) if component else None
+                default_value = attr.default if attr is not None else ""
+                value = values.get(attr_name, default_value)
                 cells.append(
                     {
                         "component": component_name,
-                        "row_id": node["id"],
-                        "row_index": row_index,
+                        "row_id": str(ref["row_id"]),
+                        "row_index": int(ref["row_index"]),
                         "attr_name": attr_name,
                         "value": value,
                         "display_value": network_data_display_value(
@@ -2651,56 +2768,9 @@ Last_path = "~"
             rows.append(
                 {
                     "component": component_name,
-                    "row_id": node["id"],
-                    "row_index": row_index,
+                    "row_id": str(ref["row_id"]),
+                    "row_index": int(ref["row_index"]),
                     "name": row_name,
-                    "cells": cells,
-                }
-            )
-        return rows
-
-    def _network_data_table_rows(self, component_name: str) -> list[NetworkDataRow]:
-        """Build Network Data rows from a non-canvas editable table."""
-        table = self._ensure_network_data_table(component_name)
-        columns = network_data_columns(component_name)
-        rows: list[NetworkDataRow] = []
-        for row in table["rows"]:
-            values_by_column = {
-                str(cell["column"]): cell["value"] for cell in row["cells"]
-            }
-            cells: list[NetworkDataCell] = []
-            for column in columns:
-                attr_name = column["name"]
-                value = values_by_column.get(attr_name, "")
-                cells.append(
-                    {
-                        "component": component_name,
-                        "row_id": str(row["id"]),
-                        "row_index": int(row["row_index"]),
-                        "attr_name": attr_name,
-                        "value": value,
-                        "display_value": network_data_display_value(
-                            value,
-                            column["input_type"],
-                        ),
-                        "type": column["type"],
-                        "input_type": column["input_type"],
-                        "is_time_series": column["is_time_series"],
-                        "has_time_series_value": self._has_time_series_value(
-                            component_name,
-                            attr_name,
-                            str(row["id"]),
-                        ),
-                        "is_bus_reference": column["is_bus_reference"],
-                        "options": column["options"],
-                    }
-                )
-            rows.append(
-                {
-                    "component": component_name,
-                    "row_id": str(row["id"]),
-                    "row_index": int(row["row_index"]),
-                    "name": str(row["id"]),
                     "cells": cells,
                 }
             )
@@ -2710,34 +2780,86 @@ Last_path = "~"
         self, component_name: str
     ) -> list[NetworkDataRow]:
         """Build rows for one Network Data component tab."""
-        if is_canvas_data_component(component_name):
-            return self._network_data_canvas_rows(component_name)
-        return self._network_data_table_rows(component_name)
+        columns = network_data_columns(component_name)
+        return self._network_data_rows_from_refs(
+            component_name,
+            columns,
+            self._network_data_row_refs(component_name),
+        )
+
+    def _network_data_columns_with_filters(
+        self, columns: list[NetworkDataColumn]
+    ) -> list[NetworkDataColumn]:
+        """Return columns annotated with active filter text."""
+        return [
+            {
+                **column,
+                "filter_value": self.network_data_column_filters.get(
+                    column["name"], ""
+                ),
+            }
+            for column in columns
+        ]
 
     def _sync_network_data_dialog(self) -> None:
         """Refresh the whole-network data tables from current state."""
         tabs: list[NetworkDataTab] = []
         component_settings = self._network_data_setting_rows()
         self.settings_network_data_components = component_settings
-        for component_setting in component_settings:
-            if not component_setting["show_in_editor"]:
-                continue
-            component_name = component_setting["component"]
+        shown_components = [
+            row["component"] for row in component_settings if row["show_in_editor"]
+        ]
+        if (
+            self.network_data_active_component not in shown_components
+            and shown_components
+        ):
+            self.network_data_active_component = shown_components[0]
+            self.network_data_page_index = 0
+            self.network_data_column_filters = {}
+
+        for component_name in shown_components:
             columns = network_data_columns(component_name)
-            rows = self._network_data_rows_for_component(component_name)
+            filtered_row_count = self._network_data_row_count(component_name)
+            rows: list[NetworkDataRow] = []
+            page_index = 0
+            page_count = 1
+            page_start = 0
+            page_end = 0
+            if component_name == self.network_data_active_component:
+                refs = self._network_data_row_refs(component_name)
+                filtered_refs = self._network_data_filtered_refs(
+                    refs,
+                    self._network_data_active_filters(columns),
+                )
+                filtered_row_count = len(filtered_refs)
+                page_size = self._network_data_page_size()
+                page_index = self._clamp_network_data_page_index(filtered_row_count)
+                page_count = max(1, (filtered_row_count + page_size - 1) // page_size)
+                start_index = page_index * page_size
+                end_index = min(start_index + page_size, filtered_row_count)
+                page_refs = filtered_refs[start_index:end_index]
+                rows = self._network_data_rows_from_refs(
+                    component_name,
+                    columns,
+                    page_refs,
+                )
+                page_start = start_index + 1 if filtered_row_count else 0
+                page_end = end_index
             tabs.append(
                 {
                     "component": component_name,
                     "label": network_data_component_label(component_name),
-                    "columns": columns,
+                    "columns": self._network_data_columns_with_filters(columns),
                     "rows": rows,
-                    "row_count": len(rows),
+                    "row_count": self._network_data_row_count(component_name),
+                    "filtered_row_count": filtered_row_count,
+                    "page_index": page_index,
+                    "page_count": page_count,
+                    "page_start": page_start,
+                    "page_end": page_end,
                 }
             )
         self.network_data_tabs = tabs
-        available_components = {tab["component"] for tab in tabs}
-        if self.network_data_active_component not in available_components:
-            self.network_data_active_component = tabs[0]["component"] if tabs else ""
 
     def open_network_data_dialog(self) -> None:
         """Open the editable whole-network data dialog."""
@@ -2755,6 +2877,57 @@ Last_path = "~"
         component_name = str(value)
         if is_network_data_settings_component(component_name):
             self.network_data_active_component = component_name
+            self.network_data_page_index = 0
+            self.network_data_column_filters = {}
+            self._sync_network_data_dialog()
+
+    def set_network_data_page_size(self, value: str) -> None:
+        """Set the Network Data page size."""
+        try:
+            page_size = int(value)
+        except ValueError:
+            page_size = 100
+        self.network_data_page_size = (
+            page_size if page_size in NETWORK_DATA_PAGE_SIZE_OPTIONS else 100
+        )
+        self.network_data_page_index = 0
+        self._sync_network_data_dialog()
+
+    def previous_network_data_page(self) -> None:
+        """Move to the previous Network Data page."""
+        self.network_data_page_index = max(0, self.network_data_page_index - 1)
+        self._sync_network_data_dialog()
+
+    def next_network_data_page(self) -> None:
+        """Move to the next Network Data page."""
+        self.network_data_page_index += 1
+        self._sync_network_data_dialog()
+
+    def set_network_data_row_query(self, value: str) -> None:
+        """Set the Network Data row-name search text."""
+        self.network_data_row_query = str(value)
+        self.network_data_page_index = 0
+        self._sync_network_data_dialog()
+
+    def set_network_data_column_filter(self, column_name: str, value: str) -> None:
+        """Set one Network Data column text filter."""
+        column_name = str(column_name)
+        filters = dict(self.network_data_column_filters)
+        filter_value = str(value)
+        if filter_value:
+            filters[column_name] = filter_value
+        else:
+            filters.pop(column_name, None)
+        self.network_data_column_filters = filters
+        self.network_data_page_index = 0
+        self._sync_network_data_dialog()
+
+    def clear_network_data_filters(self) -> None:
+        """Clear Network Data search and column filters."""
+        self.network_data_row_query = ""
+        self.network_data_column_filters = {}
+        self.network_data_page_index = 0
+        self._sync_network_data_dialog()
 
     def _should_sync_network_data_view(self) -> bool:
         """Return whether Network Data tables are currently visible."""
@@ -4224,10 +4397,12 @@ Last_path = "~"
         """Show the schematic canvas view."""
         self.active_view = "canvas"
 
-    def show_network_data_view(self) -> None:
+    async def show_network_data_view(self) -> AsyncGenerator[None, None]:
         """Show the editable whole-network data view."""
-        self._sync_network_data_dialog()
         self.active_view = "network-data"
+        yield
+        self._sync_network_data_dialog()
+        yield
 
     def show_builder_view(self) -> None:
         """Show the schematic builder view."""
