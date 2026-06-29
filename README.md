@@ -1,5 +1,21 @@
-# PyPSA Network Builder V2
+# PyPSA Network Builder
 
+
+
+![](docs/imgs/front.png)
+
+## Features
+* Import and export networks in Pypsa Formats
+* Drag and drop nework builder
+* Auto routing network
+* Region marker
+* Hide components
+* Lock components and areas in place
+* Run network in Jupyer
+* Extensive PyPSA website examples
+* Data view and editor
+* All component paramaters exposed
+* Time series params exposed (needs attention)
 
 
 ## Setup
@@ -12,5 +28,3 @@ uv run reflex run
 ```powershell
 .\scripts\build-desktop.ps1
 ```
-
-The installer is created by Electron Forge under `desktop\out`.

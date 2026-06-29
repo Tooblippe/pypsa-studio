@@ -583,6 +583,23 @@ def demo_styles() -> rx.Component:
           .react-flow__edge.schematic-branch-edge:hover .react-flow__edge-path {
             stroke: #2563eb !important;
           }
+          .schematic-branch-target-arrow {
+            position: absolute;
+            z-index: 4;
+            width: 14px;
+            height: 14px;
+            overflow: visible;
+            color: #9ca3af;
+            pointer-events: none;
+            transform-origin: center;
+          }
+          .schematic-branch-target-arrow path {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.4;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+          }
           .schematic-edge-label {
             position: absolute;
             z-index: 5;

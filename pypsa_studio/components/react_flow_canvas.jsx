@@ -441,6 +441,23 @@ function shouldRenderEdgeSymbol(component) {
   );
 }
 
+/**
+ * Return the branch flow arrow placement for the bus1 edge endpoint.
+ */
+function branchTargetArrowStyle(targetX, targetY, targetPosition) {
+  const offsetPx = 8;
+  const placement = {
+    [Position.Left]: { x: targetX - offsetPx, y: targetY, rotation: 0 },
+    [Position.Right]: { x: targetX + offsetPx, y: targetY, rotation: 180 },
+    [Position.Top]: { x: targetX, y: targetY - offsetPx, rotation: 90 },
+    [Position.Bottom]: { x: targetX, y: targetY + offsetPx, rotation: -90 },
+  }[targetPosition] || { x: targetX, y: targetY, rotation: 0 };
+
+  return {
+    transform: `translate(-50%, -50%) translate(${placement.x}px, ${placement.y}px) rotate(${placement.rotation}deg)`,
+  };
+}
+
 function SchematicStepEdge({
   id,
   sourceX,
@@ -473,6 +490,7 @@ function SchematicStepEdge({
   );
   const labelOffset = edgeLabelOffset(rotateLabel);
   const showEdgeSymbol = shouldRenderEdgeSymbol(data.component) && data.iconSrc;
+  const showBranchTargetArrow = isBranchEdgeComponent(data.component);
 
   return (
     <>
@@ -483,6 +501,18 @@ function SchematicStepEdge({
         markerStart={markerStart}
         style={style}
       />
+      {showBranchTargetArrow ? (
+        <EdgeLabelRenderer>
+          <svg
+            aria-hidden="true"
+            className="schematic-branch-target-arrow"
+            viewBox="0 0 14 14"
+            style={branchTargetArrowStyle(targetX, targetY, targetPosition)}
+          >
+            <path d="M4 3 L10 7 L4 11" />
+          </svg>
+        </EdgeLabelRenderer>
+      ) : null}
       {showEdgeSymbol ? (
         <EdgeLabelRenderer>
           <span
