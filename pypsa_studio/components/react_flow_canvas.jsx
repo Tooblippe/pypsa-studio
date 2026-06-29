@@ -131,6 +131,16 @@ function isAttachableComponent(component) {
 }
 
 /**
+ * Return whether a generator should render as consuming power.
+ */
+function hasNegativeGeneratorSign(data) {
+  return (
+    String(data?.component || "").toLowerCase() === "generators" &&
+    Number(data?.attrs?.sign) < 0
+  );
+}
+
+/**
  * Return whether a component should be represented by an edge, not a node.
  */
 function isBranchEdgeComponent(component) {
@@ -622,11 +632,19 @@ function SchematicNode({ data, selected }) {
   const connectorSides = connectorTerminalSides(data.component);
   const symbolStyle = { width: "100%", height: "100%" };
   const shouldRotateSymbol = shouldRotateIconForBusSide(data.component, data.busSide);
+  const isNegativeGenerator = hasNegativeGeneratorSign(data);
   const symbolLayerStyle = {
     width: `${symbolMeta.width}px`,
     height: `${symbolHeight}px`,
     transform: shouldRotateSymbol ? "rotate(180deg)" : "none",
   };
+  const selectNodeFromSymbol = useCallbackReactFlowCanvas(
+    (event) => {
+      if (event.button !== 0 || data.isBus || data.branchArmed) return;
+      data.onSelect?.(data.nodeId);
+    },
+    [data.branchArmed, data.isBus, data.nodeId, data.onSelect],
+  );
   const terminalElements = showConnectorTerminals ? (
     <>
       {connectorSides.includes("left") ? (
@@ -654,6 +672,7 @@ function SchematicNode({ data, selected }) {
       data-branch-armed={data.branchArmed && data.isBus ? "true" : "false"}
       data-connection-hover={data.connectionDrag && data.isBus && data.hoverBusId === data.nodeId ? "true" : "false"}
       data-branch-start={data.branchBus0NodeId === data.nodeId ? "true" : "false"}
+      data-negative-generator={isNegativeGenerator ? "true" : "false"}
       title={`${data.label} (${data.component})`}
       style={
         data.canvasVisible
@@ -690,7 +709,11 @@ function SchematicNode({ data, selected }) {
           }
         />
       ) : data.iconSvg ? (
-        <span className="schematic-symbol-layer" style={symbolLayerStyle}>
+        <span
+          className="schematic-symbol-layer"
+          onPointerDown={selectNodeFromSymbol}
+          style={symbolLayerStyle}
+        >
           {terminalElements}
           <span
             className="schematic-node-symbol"
@@ -699,7 +722,11 @@ function SchematicNode({ data, selected }) {
           />
         </span>
       ) : (
-        <span className="schematic-symbol-layer" style={symbolLayerStyle}>
+        <span
+          className="schematic-symbol-layer"
+          onPointerDown={selectNodeFromSymbol}
+          style={symbolLayerStyle}
+        >
           {terminalElements}
           <img className="schematic-node-symbol" src={data.iconSrc} alt="" style={symbolStyle} />
         </span>

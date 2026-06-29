@@ -625,6 +625,14 @@ def demo_styles() -> rx.Component:
           .dark .palette-symbol {
             filter: invert(1) brightness(1.35) contrast(1.1);
           }
+          .schematic-node[data-negative-generator="true"] .schematic-node-symbol {
+            color: #dc2626;
+            filter: none;
+          }
+          .schematic-node[data-negative-generator="true"] .schematic-terminal,
+          .schematic-node[data-negative-generator="true"] .schematic-terminal::after {
+            background: #dc2626;
+          }
           [data-is-root-theme="dark"] .schematic-node-label,
           [data-theme="dark"] .schematic-node-label,
           .dark .schematic-node-label {

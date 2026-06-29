@@ -6,12 +6,14 @@
 
 ## Features
 * Import and export networks in Pypsa Formats
-* Drag and drop nework builder
+* Drag and drop network builder
+* Set up snapshots and multi-investment periods (needs attentions)
 * Auto routing network
 * Region marker
+* Zoom to region
 * Hide components
 * Lock components and areas in place
-* Run network in Jupyer
+* Open and run the current network in Jupyer Notebook
 * Extensive PyPSA website examples
 * Data view and editor
 * All component paramaters exposed
