@@ -3,6 +3,10 @@
 .DS_Store
 .env
 .env.*
+.agents/
+.codex/
+AGENTS.md
+CLAUDE.md
 .idea
 .jupyter
 .pyinstaller-cache/
