@@ -10,7 +10,7 @@
 * Set up snapshots and multi-investment periods (needs attentions)
 * Auto routing network
 * Region marker
-* Zoom to region
+* Zoom to a marked region
 * Hide components
 * Lock components and areas in place
 * Open and run the current network in Jupyer Notebook

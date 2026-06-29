@@ -5,6 +5,20 @@ from typing import Any
 
 import reflex as rx
 
+CUSTOM_CODE_PARTS = (
+    "index.jsx",
+    "constants.jsx",
+    "component_meta.jsx",
+    "bus_routing.jsx",
+    "edge_rendering.jsx",
+    "node_rendering.jsx",
+    "context_menu.jsx",
+    "selection.jsx",
+    "geometry.jsx",
+    "regions.jsx",
+    "canvas_inner.jsx",
+)
+
 
 class ReactFlowCanvas(rx.Component):
     """A small React Flow wrapper used by the demo schematic editor."""
@@ -34,10 +48,16 @@ class ReactFlowCanvas(rx.Component):
     on_route_complete: rx.EventHandler[lambda: []]
     on_canvas_context_menu_action: rx.EventHandler[lambda payload: [payload]]
 
+    def _custom_code_part_paths(self) -> tuple[Path, ...]:
+        """Return the ordered JSX partials used to build the inline component."""
+        component_dir = Path(__file__).with_suffix("")
+        return tuple(component_dir / part for part in CUSTOM_CODE_PARTS)
+
     def _get_custom_code(self) -> str:
         """Inline the JSX implementation so Reflex bundles it without an import path."""
-        component_path = Path(__file__).with_suffix(".jsx")
-        source = component_path.read_text(encoding="utf-8")
+        source = "\n\n".join(
+            path.read_text(encoding="utf-8") for path in self._custom_code_part_paths()
+        )
         return source.replace(
             "export function ReactFlowCanvas", "function ReactFlowCanvas"
         )

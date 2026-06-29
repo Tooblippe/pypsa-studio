@@ -4458,9 +4458,24 @@ Last_path = "~"
 
     def _router_network(self) -> RouterNetwork:
         """Return the current canvas state in the Python router contract shape."""
+        visible_node_ids = {
+            str(node["id"])
+            for node in self.diagram_nodes
+            if not node["hidden"] and is_canvas_visible(node)
+        }
+        visible_edges = [
+            edge
+            for edge in self.diagram_edges
+            if str(edge.get("source", "")) in visible_node_ids
+            and str(edge.get("target", "")) in visible_node_ids
+        ]
         return {
-            "nodes": copy.deepcopy(self.diagram_nodes),
-            "edges": copy.deepcopy(self.diagram_edges),
+            "nodes": [
+                copy.deepcopy(node)
+                for node in self.diagram_nodes
+                if str(node["id"]) in visible_node_ids
+            ],
+            "edges": copy.deepcopy(visible_edges),
             "diagram_model": copy.deepcopy(self.diagram_model),
             "metadata": {
                 "selected_node_id": self.selected_node_id,
@@ -4507,7 +4522,12 @@ Last_path = "~"
                 )
             routed_by_id[node_id] = routed_node
 
-        missing_ids = set(current_by_id) - set(routed_by_id)
+        routable_ids = {
+            node_id
+            for node_id, node in current_by_id.items()
+            if not node["hidden"] and is_canvas_visible(node)
+        }
+        missing_ids = routable_ids - set(routed_by_id)
         unknown_ids = set(routed_by_id) - set(current_by_id)
         if missing_ids:
             raise ValueError(
@@ -4518,11 +4538,13 @@ Last_path = "~"
                 f"Router result contains unknown nodes: {', '.join(sorted(unknown_ids))}."
             )
 
-        routed_order = [str(node.get("id", "")) for node in routed_nodes]
         updated_nodes: list[DiagramNode] = []
-        for node_id in routed_order:
+        for node_id in current_by_id:
             current_node = copy.deepcopy(current_by_id[node_id])
-            routed_node = routed_by_id[node_id]
+            routed_node = routed_by_id.get(node_id)
+            if routed_node is None:
+                updated_nodes.append(current_node)
+                continue
             if (
                 str(routed_node.get("component", current_node["component"]))
                 != current_node["component"]
@@ -4575,6 +4597,8 @@ Last_path = "~"
         locked_positions: dict[str, dict[str, float]] = {}
         for node in self.diagram_nodes:
             if node.get("hidden"):
+                continue
+            if not is_canvas_visible(node):
                 continue
             if not self.is_node_layout_locked(node):
                 continue
@@ -6844,12 +6868,6 @@ Last_path = "~"
 
     def _sync_diagram_edges(self) -> None:
         """Regenerate React Flow edge data from node bus attributes."""
-        bus_ids_by_name = {
-            str(node["attrs"].get("name") or node["id"]): node["id"]
-            for node in self.diagram_nodes
-            if node["component"] == "buses"
-        }
-        summarized_node_ids = self.summarized_region_node_ids()
         summary_node_sets = [
             {
                 str(node_id)
@@ -6859,6 +6877,15 @@ Last_path = "~"
             for region in self.canvas_regions
             if bool(region.get("summary", False))
         ]
+        summarized_node_ids = (
+            set().union(*summary_node_sets) if summary_node_sets else set()
+        )
+        bus_ids_by_name = {
+            str(node["attrs"].get("name") or node["id"]): node["id"]
+            for node in self.diagram_nodes
+            if node["component"] == "buses"
+            and (is_canvas_visible(node) or str(node["id"]) in summarized_node_ids)
+        }
         edges: list[DiagramEdge] = []
 
         def is_internal_summary_edge(source_id: str, target_id: str) -> bool:
@@ -6872,7 +6899,10 @@ Last_path = "~"
             component_name = node["component"]
             if component_name == "buses":
                 continue
-            if not is_canvas_visible(node) and node["id"] not in summarized_node_ids:
+            if (
+                not is_canvas_visible(node)
+                and str(node["id"]) not in summarized_node_ids
+            ):
                 continue
 
             attrs = node["attrs"]
