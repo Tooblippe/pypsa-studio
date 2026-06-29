@@ -23,8 +23,3 @@
 uv sync
 uv run reflex run
 ```
-
-## Windows desktop installer
-```powershell
-.\scripts\build-desktop.ps1
-```
