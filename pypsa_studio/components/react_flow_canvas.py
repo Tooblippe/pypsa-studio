@@ -21,7 +21,7 @@ CUSTOM_CODE_PARTS = (
 
 
 class ReactFlowCanvas(rx.Component):
-    """A small React Flow wrapper used by the demo schematic editor."""
+    """A small React Flow wrapper used by the schematic editor."""
 
     library = None
     tag = "ReactFlowCanvas"
