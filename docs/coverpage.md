@@ -8,7 +8,7 @@
 > 
 > Run them in Jupyter.
 
-[Get Started](#main)
-[GitHub]()
+
+[GitHub](https://github.com/Tooblippe/pypsa-studio)
 [PYPSA](https://pypsa.org/)
 

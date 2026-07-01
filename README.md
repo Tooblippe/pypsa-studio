@@ -1,4 +1,23 @@
 
 
+
+View [Documentation](https://tooblippe.github.io/pypsa-studio/#/) (Work in progres)
+
 ![](docs/imgs/front.png)
-[Documentation](https://tooblippe.github.io/pypsa-studio/#/) 
+
+## Features
+* Import and export networks in Pypsa Formats
+* Drag and drop network builder
+* Set up snapshots and multi-investment periods (needs attentions)
+* Auto routing network
+* Region marker
+* Zoom to a marked region
+* Hide components
+* Lock components and areas in place
+* Open and run the current network in Jupyer Notebook
+* Extensive PyPSA website examples
+* Data view and editor
+* All component parameters exposed
+* Time series params exposed (needs attention)
+* Re-route individual branches
+

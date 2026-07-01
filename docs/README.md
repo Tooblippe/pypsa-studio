@@ -11,7 +11,7 @@
 * Open and run the current network in Jupyer Notebook
 * Extensive PyPSA website examples
 * Data view and editor
-* All component paramaters exposed
+* All component parameters exposed
 * Time series params exposed (needs attention)
 * Re-route individual branches
 
@@ -68,7 +68,11 @@ uv run reflex run
 
 
 
-# Sponsor
-APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
-[Afripow](https://afripow.com/services/)
+# Sponsor - Africa Power Ventures
+![](docs/imgs/apv.png) APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
+- [About](https://afripow.com/services/)
+- [Services](https://afripow.com/about-us/)
+- [Twitter](https://x.com/Afripow/)
+- [Linkedin](https://www.linkedin.com/company/africa-power-ventures/)
+
 
