@@ -26,11 +26,12 @@ if they want to, or export it for further use elsewhere.
 
 
 ## Alternatives
-I found this alternatives and attempts for review:
-- [PyPSA Drawer](https://nimabahrami.github.io/pypsa-drawer/?trk=public_post_comment-text)
+I found this alternatives, attempts or discussions for review:
+- [PyPSA App](https://github.com/PyPSA/pypsa-app)
+- [PyPSA drawer](https://nimabahrami.github.io/pypsa-drawer/?trk=public_post_comment-text)
 - [PyPSA network explorer](https://pypsa-explorer.streamlit.app/)
-
-
+- [Mailing list - Gui discussion](https://groups.google.com/g/pypsa/c/F9ip0viE0dA/m/w75-CdwPAAAJ)
+- [Mailing list - Steep curve](https://groups.google.com/g/pypsa/c/HB-J3aDvr8w/m/DyylBsSkAgAJ)
 
 ## Active development
 This package is under active development.
