@@ -111,11 +111,16 @@ uv run reflex run
 
 
 # Screenshots
+## Mark and Hide Regions
+![](imgs/show_case_1.png)
 
-|                           |                           | |
-|---------------------------|---------------------------|--|
-| ![](imgs/show_case_1.png) | ![](imgs/show_case_3.png) |
-| ![](imgs/show_case_2.png)   |
+## Data editor
+![](imgs/show_case_2.png)
+
+## Open in Jupyter
+![](imgs/show_case_3.png)
+
+
 
 
 
