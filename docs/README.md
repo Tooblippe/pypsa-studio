@@ -9,20 +9,21 @@
 
 # Features
 
-* Import and export networks in Pypsa Formats
-* Drag and drop network builder
-* Set up snapshots and multi-investment periods (needs attention)
-* Auto routing network
-* Region marker
-* Zoom to a marked region
-* Hide components
+* PyPSA graphical user interface (GUI)
+* Drag and drop PyPSA network builder
+* Import and export Pypsa networks
+* Set up snapshots and multi-investment periods (needs attentions)
+* Auto routing and layout of network single line diagram
+* Single line diagram region marker
+* Zoom to a marked region in single line diagram
+* Hide PyPSA network components in single line diagram
 * Lock components and areas in place
 * Open and run the current network in Jupyer Notebook
-* Extensive PyPSA website examples
-* Data view and editor
+* Extensive PyPSA website examples included for loading
+* Network data view and editor
 * All component parameters exposed
-* Time series params exposed (needs attention)
-* Re-route individual branches
+* Time series parameters exposed and editable (needs attention)
+* Re-route individual network branches on singel line diagram
 
 
 # Why PyPSA-Studio
