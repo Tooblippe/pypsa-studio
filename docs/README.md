@@ -68,8 +68,10 @@ uv run reflex run
 
 
 
-# Sponsor - Africa Power Ventures
-![](docs/imgs/apv.png) APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
+# Sponsor – Africa Power Ventures
+![](imgs/apv.png) 
+
+APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
 - [About](https://afripow.com/services/)
 - [Services](https://afripow.com/about-us/)
 - [Twitter](https://x.com/Afripow/)

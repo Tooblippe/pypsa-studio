@@ -2,11 +2,8 @@
 
 ![](imgs/front.png)
 
-> A simple PyPSA network builder. 
-> 
-> Build, Import and Export PyPSA networks. 
-> 
-> Run them in Jupyter.
+
+> Build, Import and Export PyPSA networks, run in Jupyter
 
 
 [GitHub](https://github.com/Tooblippe/pypsa-studio)
