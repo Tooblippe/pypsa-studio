@@ -13,7 +13,7 @@ Router_type_options = [
 ]
 
 [Voltages]
-Voltage_type = "600"
+Voltage_type = "400"
 Voltage_type_options = [
   "400",
   "600"

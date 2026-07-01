@@ -643,6 +643,10 @@ def demo_styles() -> rx.Component:
           .schematic-node[data-negative-generator="true"] .schematic-terminal::after {
             background: #dc2626;
           }
+          .schematic-node[data-voltage-colored="true"] .schematic-terminal,
+          .schematic-node[data-voltage-colored="true"] .schematic-terminal::after {
+            background: var(--voltage-color);
+          }
           [data-is-root-theme="dark"] .schematic-node-label,
           [data-theme="dark"] .schematic-node-label,
           .dark .schematic-node-label {
