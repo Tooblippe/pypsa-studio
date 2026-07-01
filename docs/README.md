@@ -6,7 +6,9 @@
 </video>
 
 
+
 # Features
+
 * Import and export networks in Pypsa Formats
 * Drag and drop network builder
 * Set up snapshots and multi-investment periods (needs attention)
@@ -33,26 +35,30 @@ if they want to, or export it for further use elsewhere.
 
 
 # Alternatives
+
 I found this alternatives, attempts or discussions for review:
 - [PyPSA App](https://github.com/PyPSA/pypsa-app)
 - [PyPSA drawer](https://nimabahrami.github.io/pypsa-drawer/?trk=public_post_comment-text)
 - [PyPSA network explorer](https://pypsa-explorer.streamlit.app/)
 - [Mailing list - Gui discussion](https://groups.google.com/g/pypsa/c/F9ip0viE0dA/m/w75-CdwPAAAJ)
-- [Mailing list - Steep curve](https://groups.google.com/g/pypsa/c/HB-J3aDvr8w/m/DyylBsSkAgAJ)
+- [Mailing list – Steep curve](https://groups.google.com/g/pypsa/c/HB-J3aDvr8w/m/DyylBsSkAgAJ)
 
 # Active development
+
 This package is under active development.
 
 
 # Platforms
+
 The application has been tested on:
 - Windows - Working
-- Mac - Working
-- Linux - to be tested
+- Mac – Working
+- Linux – to be tested
 
 
 
 # Quick start
+
 ```terminal
 git clone https://github.com/Tooblippe/pypsa-studio.git
 cd pypsa-studio
@@ -61,21 +67,24 @@ uv run reflex run
 ```
 
 # Installation
+
 ## Install uv
+
 Install the uv package manager if you do not have it unstalled already.
 [Instructions here](https://docs.astral.sh/uv/getting-started/installation/)
 
 ## Clone repo
+
 ```terminal
 git clone https://github.com/Tooblippe/pypsa-studio.git
 cd pypsa-studio
 ```
 ## Run application
+
 ```terminal
 uv sync
 uv run reflex run
 ```
-
 
 # Application Navigation
 
@@ -101,6 +110,7 @@ uv run reflex run
   - Component attributes
 
 # Solving or interacting with network in Python
+
 - Currently it will be best to run the network in [Jupyter](https://docs.jupyter.org/en/latest/)
 - Create or load an `Examples` network 
 - To run in `Jupyter` -  click `File` -> `Open in Jupyter`
@@ -121,10 +131,9 @@ uv run reflex run
 ![](imgs/show_case_3.png)
 
 
+# Sponsor 
 
-
-
-# Sponsor – Africa Power Ventures
+> Africa Power Ventures
 
 ![](imgs/apv.png) 
 
