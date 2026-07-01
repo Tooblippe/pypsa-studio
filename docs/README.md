@@ -19,12 +19,21 @@
 ## Active development
 This package is under active development.
 
+
+## Platforms
+The application has been tested on:
+- Windows - Working
+- Mac - Working
+- Linux - to be tested
+
 ## Alternatives
 
 - I found this alternative after making a lot of progress - [PyPSA Drawer](https://nimabahrami.github.io/pypsa-drawer/?trk=public_post_comment-text)
 
 ## Quick start
 ```
+git clone https://github.com/Tooblippe/pypsa-studio.git
+cd pypsa-studio
 uv sync
 uv run reflex run
 ```
@@ -34,11 +43,17 @@ uv run reflex run
 Install the uv package manager if you do not have it unstalled already.
 [Instructions here](https://docs.astral.sh/uv/getting-started/installation/)
 
+## Clone repo
+```aiignore
+git clone https://github.com/Tooblippe/pypsa-studio.git
+cd pypsa-studio
+```
 ## Run application
 ```
 uv sync
 uv run reflex run
 ```
+
 
 # Navigation
 
