@@ -53,7 +53,7 @@ The application has been tested on:
 
 
 # Quick start
-```
+```terminal
 git clone https://github.com/Tooblippe/pypsa-studio.git
 cd pypsa-studio
 uv sync
@@ -66,12 +66,12 @@ Install the uv package manager if you do not have it unstalled already.
 [Instructions here](https://docs.astral.sh/uv/getting-started/installation/)
 
 ## Clone repo
-```aiignore
+```terminal
 git clone https://github.com/Tooblippe/pypsa-studio.git
 cd pypsa-studio
 ```
 ## Run application
-```
+```terminal
 uv sync
 uv run reflex run
 ```
