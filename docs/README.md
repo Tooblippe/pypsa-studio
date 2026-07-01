@@ -29,8 +29,6 @@ uv sync
 uv run reflex run
 ```
 
-
-
 # Installation
 ## Install uv
 Install the uv package manager if you do not have it unstalled already.
@@ -65,9 +63,7 @@ uv run reflex run
 - Components data
   - Component attributes
 
-
-
-
+  
 # Sponsor – Africa Power Ventures
 
 ![](imgs/apv.png) 
