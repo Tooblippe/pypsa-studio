@@ -6,7 +6,8 @@
 > Build, Import and Export PyPSA networks, run in Jupyter
 
 
-[Get Started](#)
+[Get Started](#features)
 [GitHub](https://github.com/Tooblippe/pypsa-studio)
 [PYPSA](https://pypsa.org/)
 
+s
