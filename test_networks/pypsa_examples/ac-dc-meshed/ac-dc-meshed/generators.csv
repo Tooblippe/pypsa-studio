@@ -1,7 +1,7 @@
-name,bus,control,type,p_nom,p_nom_extendable,p_nom_min,carrier,capital_cost
-Manchester Wind,Manchester,PQ,,80.0,True,100.0,wind,2793.6516029328
-Manchester Gas,Manchester,PQ,,50000.0,True,0.0,gas,196.6151679691
-Norway Wind,Norway,PQ,,100.0,True,100.0,wind,2184.3747960912
-Norway Gas,Norway,PQ,,20000.0,True,0.0,gas,158.2512497168
-Frankfurt Wind,Frankfurt,PQ,,110.0,True,100.0,wind,2129.4561224763
-Frankfurt Gas,Frankfurt,PQ,,80000.0,True,0.0,gas,102.6769530076
+name,bus,p_nom,p_nom_extendable,p_nom_min,carrier,capital_cost
+Manchester Wind,Manchester,80.0,True,100.0,wind,2793.6516029328
+Manchester Gas,Manchester,50000.0,True,0.0,gas,196.6151679691
+Norway Wind,Norway,100.0,True,100.0,wind,2184.3747960912
+Norway Gas,Norway,20000.0,True,0.0,gas,158.2512497168
+Frankfurt Wind,Frankfurt,110.0,True,100.0,wind,2129.4561224763
+Frankfurt Gas,Frankfurt,80000.0,True,0.0,gas,102.6769530076

@@ -2,7 +2,7 @@
 ## Features
 * Import and export networks in Pypsa Formats
 * Drag and drop network builder
-* Set up snapshots and multi-investment periods (needs attentions)
+* Set up snapshots and multi-investment periods (needs attention)
 * Auto routing network
 * Region marker
 * Zoom to a marked region

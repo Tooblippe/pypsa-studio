@@ -1,10 +1,10 @@
-name,v_nom,type,x,y,carrier,unit,location,control,generator,sub_network
-London,380.0,,-0.13,51.5,AC,,,PQ,,
-Norwich,380.0,,1.3,52.6,AC,,,PQ,,
-Norwich DC,200.0,,1.3,52.5,DC,,,PQ,,
-Manchester,380.0,,-2.2,53.47,AC,,,PQ,,
-Bremen,380.0,,8.8,53.08,AC,,,PQ,,
-Bremen DC,200.0,,8.8,52.98,DC,,,PQ,,
-Frankfurt,380.0,,8.7,50.12,AC,,,PQ,,
-Norway,380.0,,10.75,60.0,AC,,,PQ,,
-Norway DC,200.0,,10.75,60.0,DC,,,PQ,,
+name,v_nom,x,y,carrier
+London,380.0,-0.13,51.5,AC
+Norwich,380.0,1.3,52.6,AC
+Norwich DC,200.0,1.3,52.5,DC
+Manchester,380.0,-2.2,53.47,AC
+Bremen,380.0,8.8,53.08,AC
+Bremen DC,200.0,8.8,52.98,DC
+Frankfurt,380.0,8.7,50.12,AC
+Norway,380.0,10.75,60.0,AC
+Norway DC,200.0,10.75,60.0,DC

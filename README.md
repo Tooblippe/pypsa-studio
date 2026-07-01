@@ -21,3 +21,15 @@ View [Documentation](https://tooblippe.github.io/pypsa-studio/#/) (Work in progr
 * Time series params exposed (needs attention)
 * Re-route individual branches
 
+
+
+# Sponsor – Africa Power Ventures
+
+![](docs/imgs/apv.png) 
+
+APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
+- [About](https://afripow.com/services/)
+- [Services](https://afripow.com/about-us/)
+- [Twitter](https://x.com/Afripow/)
+- [Linkedin](https://www.linkedin.com/company/africa-power-ventures/)
+
