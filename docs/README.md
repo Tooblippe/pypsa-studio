@@ -1,3 +1,9 @@
+# Drag and drop demonstration
+<video width="640" height="360" autoplay muted playsinline controls>
+  <source src="imgs/builder.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
 
 ## Features
 * Import and export networks in Pypsa Formats
@@ -101,7 +107,16 @@ uv run reflex run
 - Changes made to the network will not persist back to the original loaded network exept if you export the network and open it again in PyPSA-Studio (will improve on this!)
 - If you do not want to use `Jupyter` just export the network and import it into an environment of your choice
 
-  
+
+# Screenshots
+
+|                           |                           | |
+|---------------------------|---------------------------|--|
+| ![](imgs/show_case_1.png) | ![](imgs/show_case_3.png) |
+| ![](imgs/show_case_2.png)   |
+
+
+
 # Sponsor – Africa Power Ventures
 
 ![](imgs/apv.png) 
