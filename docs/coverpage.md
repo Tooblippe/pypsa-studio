@@ -3,7 +3,7 @@
 ![](imgs/front.png)
 
 
-> Build, import and export PyPSA networks. Run in Jupyter
+> Build, import and export PyPSA networks. Run in Jupyter.
 
 
 [Docs](#demonstration)
