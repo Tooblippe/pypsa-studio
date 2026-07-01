@@ -1,6 +1,6 @@
 # PyPSA Studio
 
-![](imgs/front.png ':size=800')
+![](imgs/front.png)
 
 
 > Build, Import and Export PyPSA networks, run in Jupyter
