@@ -133,16 +133,9 @@ uv run reflex run
 
 # Sponsor 
 
-> Africa Power Ventures
-
-![](imgs/apv.png) 
-
-APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
-- [About](https://afripow.com/services/)
-- [Services](https://afripow.com/about-us/)
-- [Twitter](https://x.com/Afripow/)
-- [Linkedin](https://www.linkedin.com/company/africa-power-ventures/)
-
+|                   |                                                                                                                                                                                                                                                                                                                                   |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ![](imgs/apv.png) | Africa Power Ventures (APV) design and implement dynamic electricity markets that also support wheeling, imports, exports and trading - [About](https://afripow.com/services/), [Services](https://afripow.com/about-us/), [Twitter](https://x.com/Afripow/), [Linkedin](https://www.linkedin.com/company/africa-power-ventures/) |
 
 # Source Code
 Find the code on [Github](https://github.com/Tooblippe/pypsa-studio)

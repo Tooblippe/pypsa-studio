@@ -1,11 +1,9 @@
-
-
-
-View [Documentation](https://tooblippe.github.io/pypsa-studio/#/) (Work in progres)
+> View [Documentation](https://tooblippe.github.io/pypsa-studio/#/) (Work in progres)
 
 ![](docs/imgs/front.png)
 
 ## Features
+
 * Import and export networks in Pypsa Formats
 * Drag and drop network builder
 * Set up snapshots and multi-investment periods (needs attentions)
@@ -26,8 +24,6 @@ View [Documentation](https://tooblippe.github.io/pypsa-studio/#/) (Work in progr
   <source src="imgs/builder.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
-
-
 
 
 # Sponsor – Africa Power Ventures
