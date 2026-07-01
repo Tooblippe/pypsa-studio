@@ -1,4 +1,4 @@
-##  Demonstration
+#  Demonstration
 
 <video width="640" height="360" autoplay muted playsinline controls>
   <source src="imgs/builder.mp4" type="video/mp4">
@@ -6,7 +6,7 @@
 </video>
 
 
-## Features
+# Features
 * Import and export networks in Pypsa Formats
 * Drag and drop network builder
 * Set up snapshots and multi-investment periods (needs attention)
@@ -23,7 +23,7 @@
 * Re-route individual branches
 
 
-## Why PyPSA-Studio
+# Why PyPSA-Studio
 
 Currently there are no end to end [PyPSA gui](https://docs.pypsa.org/v1.0.5/user-guide/faq/#does-pypsa-have-a-gui).
 The learning curve in especialy creating new networks in PyPSA can be difficult. 
@@ -32,7 +32,7 @@ This project aims to get new users up and running quickly to create a new networ
 if they want to, or export it for further use elsewhere. 
 
 
-## Alternatives
+# Alternatives
 I found this alternatives, attempts or discussions for review:
 - [PyPSA App](https://github.com/PyPSA/pypsa-app)
 - [PyPSA drawer](https://nimabahrami.github.io/pypsa-drawer/?trk=public_post_comment-text)
@@ -40,18 +40,19 @@ I found this alternatives, attempts or discussions for review:
 - [Mailing list - Gui discussion](https://groups.google.com/g/pypsa/c/F9ip0viE0dA/m/w75-CdwPAAAJ)
 - [Mailing list - Steep curve](https://groups.google.com/g/pypsa/c/HB-J3aDvr8w/m/DyylBsSkAgAJ)
 
-## Active development
+# Active development
 This package is under active development.
 
 
-## Platforms
+# Platforms
 The application has been tested on:
 - Windows - Working
 - Mac - Working
 - Linux - to be tested
 
 
-## Quick start
+
+# Quick start
 ```
 git clone https://github.com/Tooblippe/pypsa-studio.git
 cd pypsa-studio
