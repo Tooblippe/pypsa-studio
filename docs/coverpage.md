@@ -9,6 +9,5 @@
 [Docs](#features)
 [Quickstart](#quick-start)
 [GitHub](https://github.com/Tooblippe/pypsa-studio)
-[PYPSA](https://pypsa.org/)
 [Sponsor](https://afripow.com/)
 
