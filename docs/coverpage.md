@@ -10,4 +10,3 @@
 [GitHub](https://github.com/Tooblippe/pypsa-studio)
 [PYPSA](https://pypsa.org/)
 
-s
