@@ -1,4 +1,4 @@
-##  Drag and drop demonstration
+##  Demonstration
 
 <video width="640" height="360" autoplay muted playsinline controls>
   <source src="imgs/builder.mp4" type="video/mp4">
