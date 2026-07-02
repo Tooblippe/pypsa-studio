@@ -23,16 +23,35 @@ function loadHelpers() {
     readCanvasPart("component_meta.jsx"),
     readCanvasPart("bus_routing.jsx"),
     readCanvasPart("selection.jsx"),
+    readCanvasPart("geometry.jsx"),
     readCanvasPart("regions.jsx"),
     edgeHelpers,
     `Object.assign(globalThis, {
+      activePalettePayload,
+      applyBusSideConstraintsToLayout,
+      clampContextMenuPosition,
+      componentToBuilderKind,
+      connectorTerminalSides,
+      displayNameForNode,
+      edgePathIntersectsRect,
       normalizeSelectionRect,
+      flowBoundsFromLocalRect,
+      hasNegativeGeneratorSign,
+      iconContactPercent,
+      isAttachableComponent,
+      isCanvasVisible,
+      localNodeRect,
+      localPointFromMouseEvent,
+      localRectFromFlowBounds,
+      parseComponentPayload,
       rectsIntersect,
       normalizeRegionColor,
       resizeRegionBounds,
       flowRectForRegion,
       flowRectsIntersect,
       safeHandleId,
+      shouldRotateIconForBusSide,
+      symbolMetaForComponent,
       busSymbolLengthForHandles,
       sideForBusConnection,
       buildBusConnectionRouting,
@@ -74,6 +93,89 @@ test("rectsIntersect detects overlap and separation", () => {
     ),
     false,
   );
+});
+
+test("geometry helpers handle wrapper offsets and clamping", () => {
+  const wrapper = {
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 200, height: 160 }),
+  };
+  const reactFlow = {
+    screenToFlowPosition: ({ x, y }) => ({ x: x / 2, y: y / 2 }),
+    flowToScreenPosition: ({ x, y }) => ({ x: x * 2, y: y * 2 }),
+  };
+
+  assert.deepEqual(
+    plain(helpers.localPointFromMouseEvent({ clientX: 25, clientY: 50 }, wrapper)),
+    { x: 15, y: 30 },
+  );
+  assert.deepEqual(
+    plain(helpers.clampContextMenuPosition({ x: 190, y: 150 }, wrapper)),
+    { x: 12, y: 48 },
+  );
+  assert.deepEqual(
+    plain(
+      helpers.flowBoundsFromLocalRect(
+        { x: 0, y: 0, right: 20, bottom: 40 },
+        reactFlow,
+        wrapper,
+      ),
+    ),
+    { x: 5, y: 10, width: 10, height: 20 },
+  );
+  assert.deepEqual(
+    plain(
+      helpers.localRectFromFlowBounds(
+        { x: 5, y: 10, width: 10, height: 20 },
+        reactFlow,
+        wrapper,
+      ),
+    ),
+    { x: 0, y: 0, width: 20, height: 40 },
+  );
+  assert.deepEqual(
+    plain(
+      helpers.localNodeRect(
+        {
+          position: { x: 5, y: 10 },
+          style: { width: "30", height: "40" },
+        },
+        reactFlow,
+        wrapper,
+      ),
+    ),
+    { x: 0, y: 0, right: 30, bottom: 40 },
+  );
+});
+
+test("component metadata helpers cover defaults and malformed payloads", () => {
+  assert.equal(helpers.componentToBuilderKind("Storage_Units"), "storage_unit");
+  assert.deepEqual(plain(helpers.symbolMetaForComponent("unknown")), {
+    width: 56,
+    height: 56,
+  });
+  assert.equal(helpers.iconContactPercent("loads", "left"), 0);
+  assert.deepEqual(plain(helpers.connectorTerminalSides("stores")), ["left"]);
+  assert.equal(helpers.isAttachableComponent("lines"), false);
+  assert.equal(helpers.shouldRotateIconForBusSide("generators", "right"), true);
+  assert.equal(
+    helpers.hasNegativeGeneratorSign({
+      component: "generators",
+      attrs: { sign: -1 },
+    }),
+    true,
+  );
+  assert.deepEqual(plain(helpers.parseComponentPayload('{"component":"buses"}')), {
+    component: "buses",
+  });
+  assert.deepEqual(plain(helpers.parseComponentPayload("{bad json")), {
+    component: "",
+  });
+  assert.equal(helpers.activePalettePayload(), "");
+  assert.equal(
+    helpers.displayNameForNode({ id: "node_1", pypsa_name: "Bus" }),
+    "node_1",
+  );
+  assert.equal(helpers.isCanvasVisible({ layout: { visible: false } }), false);
 });
 
 test("normalizeRegionColor accepts known colors and falls back", () => {
@@ -151,7 +253,12 @@ test("sideForBusConnection handles vertical and horizontal buses", () => {
 
 test("buildBusConnectionRouting creates stable bus handles", () => {
   const nodes = [
-    { id: "bus_1", component: "buses", position: { x: 100, y: 100 }, attrs: { name: "bus_a" } },
+    {
+      id: "bus_1",
+      component: "buses",
+      position: { x: 100, y: 100 },
+      attrs: { name: "bus_a" },
+    },
     {
       id: "gen_1",
       component: "generators",
@@ -176,6 +283,72 @@ test("buildBusConnectionRouting creates stable bus handles", () => {
   assert.equal(routed.handlesByBusId.bus_1[0].offsetPx, 36);
 });
 
+test("buildBusConnectionRouting orders handles and preserves component side", () => {
+  const nodes = [
+    { id: "bus_1", component: "buses", position: { x: 100, y: 100 }, attrs: { name: "bus_a" } },
+    {
+      id: "gen_1",
+      component: "generators",
+      position: { x: 40, y: 20 },
+      layout: { bus_side: "left" },
+      attrs: { bus: "bus_a" },
+    },
+    {
+      id: "load_1",
+      component: "loads",
+      position: { x: 220, y: 220 },
+      layout: { bus_side: "right" },
+      attrs: { bus: "bus_a" },
+    },
+    {
+      id: "load_2",
+      component: "loads",
+      position: { x: 220, y: 160 },
+      layout: { bus_side: "right" },
+      attrs: { bus: "bus_a" },
+    },
+  ];
+  const edges = [
+    {
+      id: "attach:load_1:bus_1",
+      source: "bus_1",
+      target: "load_1",
+      sourceHandle: "right-source",
+      targetHandle: "left-target",
+    },
+    {
+      id: "attach:load_2:bus_1",
+      source: "bus_1",
+      target: "load_2",
+      sourceHandle: "right-source",
+      targetHandle: "left-target",
+    },
+    {
+      id: "attach:gen_1:bus_1",
+      source: "gen_1",
+      target: "bus_1",
+      sourceHandle: "right-source",
+      targetHandle: "left-target",
+    },
+  ];
+
+  const routed = helpers.buildBusConnectionRouting(nodes, edges);
+
+  assert.equal(routed.edges[0].sourceHandle, "right-source-attach_load_1_bus_1");
+  assert.equal(routed.edges[2].sourceHandle, "right-source");
+  const offsetsByHandleId = Object.fromEntries(
+    routed.handlesByBusId.bus_1.map((handle) => [handle.id, handle.offsetPx]),
+  );
+  assert.equal(offsetsByHandleId["right-source-attach_load_2_bus_1"], 24);
+  assert.equal(offsetsByHandleId["right-source-attach_load_1_bus_1"], 48);
+
+  const constrained = helpers.applyBusSideConstraintsToLayout(
+    [{ id: "gen_1", x: 250, y: 20 }],
+    nodes,
+  );
+  assert.equal(constrained[0].x, 25);
+});
+
 test("edge helper functions read serialized edge data", () => {
   assert.deepEqual(
     plain(helpers.edgeOffsetFromData({ edgeOffset: { x: "3", y: 4 } })),
@@ -186,4 +359,48 @@ test("edge helper functions read serialized edge data", () => {
   );
   assert.equal(helpers.shouldRenderEdgeSymbol("transformers"), true);
   assert.equal(helpers.shouldRenderEdgeSymbol("loads"), false);
+});
+
+test("edgePathIntersectsRect samples branch SVG paths only", () => {
+  const pathElement = {
+    ownerSVGElement: {
+      createSVGPoint: () => ({
+        x: 0,
+        y: 0,
+        matrixTransform() {
+          return { x: this.x, y: this.y };
+        },
+      }),
+      getScreenCTM: () => ({}),
+    },
+    getTotalLength: () => 100,
+    getPointAtLength: (length) => ({ x: length, y: 10 }),
+  };
+  const wrapper = {
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+    querySelectorAll: () => [
+      {
+        getAttribute: () => "branch:line_1",
+        querySelector: () => pathElement,
+      },
+    ],
+    querySelector: () => null,
+  };
+
+  assert.equal(
+    helpers.edgePathIntersectsRect(
+      wrapper,
+      { id: "branch:line_1", component: "lines" },
+      { x: 45, y: 5, right: 55, bottom: 15 },
+    ),
+    true,
+  );
+  assert.equal(
+    helpers.edgePathIntersectsRect(
+      wrapper,
+      { id: "attach:load_1:bus_1", component: "loads" },
+      { x: 45, y: 5, right: 55, bottom: 15 },
+    ),
+    false,
+  );
 });
