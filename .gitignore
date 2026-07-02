@@ -1,5 +1,6 @@
 *.db
 *.py[cod]
+.coverage
 .DS_Store
 .env
 .env.*
@@ -10,6 +11,7 @@ CLAUDE.md
 .idea
 .jupyter
 .pyinstaller-cache/
+.pytest_tmp/
 .reflex/
 .states
 .venv
@@ -19,6 +21,7 @@ CLAUDE.md
 __pycache__/
 assets/external/
 build/
+htmlcov/
 desktop/backend/
 desktop/frontend/
 desktop/node_modules/

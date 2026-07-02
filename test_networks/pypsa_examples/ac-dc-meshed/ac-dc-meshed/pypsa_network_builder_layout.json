@@ -1,0 +1,251 @@
+{
+  "version": 3,
+  "positions": [
+    {
+      "component": "buses",
+      "id": "bus_1",
+      "name": "London",
+      "x": 267.0,
+      "y": 379.0
+    },
+    {
+      "component": "buses",
+      "id": "bus_2",
+      "name": "Norwich",
+      "x": 88.0,
+      "y": 629.0
+    },
+    {
+      "component": "buses",
+      "id": "bus_3",
+      "name": "Norwich DC",
+      "x": 810.0,
+      "y": 929.4666666666666
+    },
+    {
+      "component": "buses",
+      "id": "bus_4",
+      "name": "Manchester",
+      "x": 440.0,
+      "y": 629.0
+    },
+    {
+      "component": "buses",
+      "id": "bus_5",
+      "name": "Bremen",
+      "x": 451.0,
+      "y": 379.0
+    },
+    {
+      "component": "buses",
+      "id": "bus_6",
+      "name": "Bremen DC",
+      "x": 633.3333333333334,
+      "y": 509.0
+    },
+    {
+      "component": "buses",
+      "id": "bus_7",
+      "name": "Frankfurt",
+      "x": 625.0,
+      "y": 21.0
+    },
+    {
+      "component": "buses",
+      "id": "bus_8",
+      "name": "Norway",
+      "x": 813.0,
+      "y": 164.33333333333334
+    },
+    {
+      "component": "buses",
+      "id": "bus_9",
+      "name": "Norway DC",
+      "x": 986.0,
+      "y": 493.6666666666667
+    },
+    {
+      "component": "lines",
+      "id": "line_1",
+      "name": "0",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "lines",
+      "id": "line_2",
+      "name": "1",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "lines",
+      "id": "line_3",
+      "name": "2",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "lines",
+      "id": "line_4",
+      "name": "3",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "lines",
+      "id": "line_5",
+      "name": "4",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "lines",
+      "id": "line_6",
+      "name": "5",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "lines",
+      "id": "line_7",
+      "name": "6",
+      "x": 0.0,
+      "y": 0.0,
+      "edge_offset_x": 31.0,
+      "edge_offset_y": 34.2
+    },
+    {
+      "component": "links",
+      "id": "link_1",
+      "name": "Norwich Converter",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "links",
+      "id": "link_2",
+      "name": "Norway Converter",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "links",
+      "id": "link_3",
+      "name": "Bremen Converter",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "links",
+      "id": "link_4",
+      "name": "DC link",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "component": "generators",
+      "id": "generator_1",
+      "name": "Manchester Wind",
+      "x": 368.06278290598283,
+      "y": 780.3753253561254,
+      "bus_side": "left"
+    },
+    {
+      "component": "generators",
+      "id": "generator_2",
+      "name": "Manchester Gas",
+      "x": 561.5007544159544,
+      "y": 582.9905413105413,
+      "bus_side": "right"
+    },
+    {
+      "component": "generators",
+      "id": "generator_3",
+      "name": "Norway Wind",
+      "x": 620.0,
+      "y": 163.0,
+      "bus_side": "left"
+    },
+    {
+      "component": "generators",
+      "id": "generator_4",
+      "name": "Norway Gas",
+      "x": 620.0,
+      "y": 277.0,
+      "bus_side": "left"
+    },
+    {
+      "component": "generators",
+      "id": "generator_5",
+      "name": "Frankfurt Wind",
+      "x": 436.0,
+      "y": 244.0,
+      "bus_side": "left"
+    },
+    {
+      "component": "generators",
+      "id": "generator_6",
+      "name": "Frankfurt Gas",
+      "x": 436.0,
+      "y": 12.0,
+      "bus_side": "left"
+    },
+    {
+      "component": "global_constraints",
+      "id": "global_constraint_1",
+      "name": "co2_limit",
+      "x": 12.0,
+      "y": 12.0
+    },
+    {
+      "component": "loads",
+      "id": "load_1",
+      "name": "London",
+      "x": 436.0,
+      "y": 126.0,
+      "bus_side": "right"
+    },
+    {
+      "component": "loads",
+      "id": "load_2",
+      "name": "Frankfurt",
+      "x": 804.0,
+      "y": 33.0,
+      "bus_side": "right"
+    },
+    {
+      "component": "loads",
+      "id": "load_3",
+      "name": "Norway",
+      "x": 986.0,
+      "y": 161.0,
+      "bus_side": "right"
+    },
+    {
+      "component": "loads",
+      "id": "load_4",
+      "name": "Norwich",
+      "x": 252.0,
+      "y": 798.8,
+      "bus_side": "right"
+    },
+    {
+      "component": "loads",
+      "id": "load_5",
+      "name": "Bremen",
+      "x": 620.0,
+      "y": 391.0,
+      "bus_side": "right"
+    },
+    {
+      "component": "loads",
+      "id": "load_6",
+      "name": "Manchester",
+      "x": 620.0,
+      "y": 651.0,
+      "bus_side": "right"
+    }
+  ],
+  "regions": []
+}
