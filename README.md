@@ -16,7 +16,7 @@
 * Hide PyPSA network components in single line diagram
 * Lock components and areas in place
 * Open and run the current network in Jupyer Notebook
-* Extensive PyPSA website examples included for loading
+* Extensive PyPSA website ereaxamples included for loading
 * Network data view and editor
 * All component parameters exposed
 * Time series parameters exposed and editable (needs attention)

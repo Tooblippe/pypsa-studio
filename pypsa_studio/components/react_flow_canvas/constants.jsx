@@ -34,4 +34,12 @@ const REGION_COLOR_OPTIONS = [
   { color: "#4b5563", label: "Gray" },
 ];
 
-const VOLTAGE_COLOR_OPTIONS = REGION_COLOR_OPTIONS;
+const VOLTAGE_COLOR_OPTIONS =  [
+  { color: "#090909", label: "Blue" },
+  { color: "#16a34a", label: "Green" },
+  { color: "#d97706", label: "Amber" },
+  { color: "#dc2626", label: "Red" },
+  { color: "#7c3aed", label: "Violet" },
+  { color: "#0891b2", label: "Cyan" },
+  { color: "#4b5563", label: "Gray" },
+];
