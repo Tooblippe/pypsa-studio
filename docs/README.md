@@ -52,7 +52,7 @@ This package is under active development.
 # Platforms
 
 The application has been tested on:
-- Windows - Working, you can notice slow compile times. [SEE the Reflex FAQ](https://reflex.dev/faq/)
+- Windows - Working, you might notice slow compile times. [SEE the Reflex FAQ](https://reflex.dev/faq/)
 - Mac – Working
 - Linux – WSL tested 
 
