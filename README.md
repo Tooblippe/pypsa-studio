@@ -29,13 +29,11 @@
 </video>
 
 
-# Sponsor – Africa Power Ventures
+# Sponsor 
 
-![](docs/imgs/apv.png) 
+|                   |                                                                                                                                                                                                                                                                                                                                   |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ![](imgs/apv.png) | Africa Power Ventures (APV) builds, bespoke PyPSA simulation models that co-optimise generation and transmission investment across complex power systems — including hydro cascades, BESS deployment, reserve requirements, and price projections. APV also simulates dynamic electricity markets that support wheeling, imports, exports, and cross-border trading. [About](https://afripow.com/services/), [Services](https://afripow.com/about-us/), [Twitter](https://x.com/Afripow/), [Linkedin](https://www.linkedin.com/company/africa-power-ventures/) |
 
-APV design and implement dynamic electricity markets that also support wheeling, imports, exports and trading
-- [About](https://afripow.com/services/)
-- [Services](https://afripow.com/about-us/)
-- [Twitter](https://x.com/Afripow/)
-- [Linkedin](https://www.linkedin.com/company/africa-power-ventures/)
-
+# Source Code
+Find t
