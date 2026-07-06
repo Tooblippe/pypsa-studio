@@ -26,13 +26,27 @@
 * Re-route individual network branches on singel line diagram
 
 
-# Why PyPSA-Studio
+# Why PyPSA-Studio?
 
-Currently there are no end to end [PyPSA gui](https://docs.pypsa.org/v1.0.5/user-guide/faq/#does-pypsa-have-a-gui).
+Currently there are no end to end [PyPSA Gui](https://docs.pypsa.org/v1.0.5/user-guide/faq/#does-pypsa-have-a-gui).
 The learning curve in especialy creating new networks in PyPSA can be difficult. 
 
 This project aims to get new users up and running quickly to create a new network and start using it in Jupyer notebook 
 if they want to, or export it for further use elsewhere. 
+
+# Why Reflex?
+
+[Reflex](https://reflex.dev/) is a full-stack Python app platform. It wraps neatly around React components.
+
+The intent is to offload solver and reporting workloads to a backend later and that’s why a backend is baked in from the start.
+
+We have successfully built our complete internal PyPSA solver stack using Reflex with great success. 
+
+Initially we had all our internal workloads running in [Streamlit](https://streamlit.io/) and Celery task ques, but with Reflex a full responsive app is achieved without too much JS knowledge. 
+
+Because of Reflex proximity to React it was relatively simple to expose the [react-flow](https://reactflow.dev/) object for use in the application, which acts as the component canvas.
+
+This also allows for the integration of the [ELK auto router](https://reactflow.dev/examples/layout/elkjs) almost natively.
 
 
 # Alternatives
