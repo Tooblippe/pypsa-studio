@@ -22,6 +22,16 @@
 * Time series parameters exposed and editable (needs attention)
 * Re-route individual network branches on singel line diagram
 
+# Quick start
+
+```terminal
+git clone https://github.com/Tooblippe/pypsa-studio.git
+cd pypsa-studio
+uv sync
+uv run reflex run
+```
+
+
 
 <video width="640" height="360" autoplay muted playsinline controls>
   <source src="imgs/builder.mp4" type="video/mp4">
