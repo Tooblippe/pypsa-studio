@@ -1,7 +1,7 @@
 [project]
-name = "pypsa-network-builder-v2"
+name = "pypsa-studio"
 version = "0.1.0"
-description = "PyPSA drag an drop network builder"
+description = "Build, import and export PyPSA networks. Run in Jupyter."
 readme = "README.md"
 requires-python = ">=3.12,!=3.14.1"
 dependencies = [

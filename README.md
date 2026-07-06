@@ -1,7 +1,6 @@
 > View [Documentation](https://tooblippe.github.io/pypsa-studio/#/) (Work in progres)
 
 
-
 ![](docs/imgs/front.png)
 
 ## Features
