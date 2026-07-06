@@ -19,7 +19,7 @@
 * Extensive PyPSA website ereaxamples included for loading
 * Network data view and editor
 * All component parameters exposed
-* Time series parameters exposed and editable (needs attention)
+* Time series parameters exposed and editapypble (needs attention)
 * Re-route individual network branches on singel line diagram
 
 # Quick start

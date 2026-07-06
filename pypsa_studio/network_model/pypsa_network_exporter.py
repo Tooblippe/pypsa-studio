@@ -287,7 +287,7 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
         try:
             x = float(position.get("x", 0))
             y = float(position.get("y", 0))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         position_entry = {
             "component": str(component.get("component", "")),
@@ -311,7 +311,7 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
             try:
                 edge_offset_x = float(layout.get("edge_offset_x", 0))
                 edge_offset_y = float(layout.get("edge_offset_y", 0))
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 edge_offset_x = 0.0
                 edge_offset_y = 0.0
             if edge_offset_x:
@@ -328,7 +328,7 @@ def _write_layout_sidecar(target_folder: Path, diagram_model: dict[str, Any]) ->
             y = float(region.get("y", 0))
             width = float(region.get("width", 0))
             height = float(region.get("height", 0))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if width <= 0 or height <= 0:
             continue

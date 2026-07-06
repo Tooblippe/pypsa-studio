@@ -442,7 +442,7 @@ def read_last_network_folder() -> Path | None:
     """Read the last successfully loaded local network folder from app settings."""
     try:
         payload = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(payload, dict):
         return None
@@ -932,7 +932,7 @@ def network_data_settings_lookup_from_file() -> dict[str, NetworkDataComponentSe
     try:
         with open(SETTINGS_FILE, "rb") as fh:
             raw = tomllib.load(fh)
-    except OSError, tomllib.TOMLDecodeError:
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
 
     section = raw.get(NETWORK_DATA_SETTINGS_SECTION, {})
@@ -1108,7 +1108,7 @@ def table_cell_value(value: object) -> str:
     try:
         if pd.isna(value):
             return ""
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     return str(value)
 
@@ -1304,7 +1304,7 @@ def load_layout_positions(
         return {}
     try:
         payload = json.loads(layout_path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return {}
 
     positions: dict[tuple[str, str], dict[str, object]] = {}
@@ -1321,7 +1321,7 @@ def load_layout_positions(
                 "x": float(entry.get("x", 0)),
                 "y": float(entry.get("y", 0)),
             }
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         bus_side = normalize_bus_side(entry.get("bus_side"))
         if bus_side:
@@ -1344,7 +1344,7 @@ def load_layout_regions(network_path: Path) -> list[CanvasRegion]:
         return []
     try:
         payload = json.loads(layout_path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return []
 
     regions: list[CanvasRegion] = []
@@ -1357,7 +1357,7 @@ def load_layout_regions(network_path: Path) -> list[CanvasRegion]:
             y = float(entry.get("y", 0))
             width = float(entry.get("width", 0))
             height = float(entry.get("height", 0))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if width <= 0 or height <= 0:
             continue
@@ -1402,7 +1402,7 @@ def edge_offset_from_layout(layout: object) -> dict[str, float]:
             "x": float(layout.get("edge_offset_x", 0)),
             "y": float(layout.get("edge_offset_y", 0)),
         }
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return {"x": 0.0, "y": 0.0}
 
 
@@ -1687,12 +1687,12 @@ def clean_imported_value(value: object) -> object:
 
         if pd.isna(value):
             return None
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     if hasattr(value, "item"):
         try:
             return value.item()
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
     return value
 
@@ -2161,7 +2161,7 @@ class State(rx.State):
         try:
             with open(SETTINGS_FILE, "rb") as fh:
                 raw = tomllib.load(fh)
-        except OSError, tomllib.TOMLDecodeError:
+        except (OSError, tomllib.TOMLDecodeError):
             pass
 
         result: dict[str, dict[str, object]] = {}
@@ -2208,7 +2208,7 @@ Last_path = "~"
         try:
             with open(SETTINGS_FILE, "rb") as fh:
                 raw = tomllib.load(fh)
-        except OSError, tomllib.TOMLDecodeError:
+        except (OSError, tomllib.TOMLDecodeError):
             raw = {}
 
         configured_rows = []
@@ -2276,7 +2276,7 @@ Last_path = "~"
         try:
             with open(SETTINGS_FILE, "rb") as fh:
                 data = tomllib.load(fh)
-        except OSError, tomllib.TOMLDecodeError:
+        except (OSError, tomllib.TOMLDecodeError):
             return {}
         options: dict[str, list[str]] = {}
         for section, pairs in data.items():
@@ -4610,7 +4610,7 @@ Last_path = "~"
                     "x": float(position.get("x", 0)),
                     "y": float(position.get("y", 0)),
                 }
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
         return locked_positions
 
@@ -5505,7 +5505,7 @@ Last_path = "~"
                 if float(node_position.get("x", 0)) < float(bus_position.get("x", 0))
                 else "right"
             )
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return ""
 
     def _refresh_bus_side_layout(self) -> None:
@@ -5585,7 +5585,7 @@ Last_path = "~"
             try:
                 x = float(position.get("x", 0))
                 bus_x = float(bus_position.get("x", 0))
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
 
             if bus_side == "left" and x >= bus_x:
@@ -5947,7 +5947,7 @@ Last_path = "~"
             y = float(bounds.get("y", 0))
             width = float(bounds.get("width", 0))
             height = float(bounds.get("height", 0))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
         if width <= 0 or height <= 0:
             return None
@@ -6062,7 +6062,7 @@ Last_path = "~"
         try:
             x = float(position.get("x", 0))
             y = float(position.get("y", 0))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
         width, height = CANVAS_REGION_NODE_SIZES.get(
             str(node.get("component", "")).lower(),
@@ -6234,7 +6234,7 @@ Last_path = "~"
                     "x": float(position.get("x", 0)),
                     "y": float(position.get("y", 0)),
                 }
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
 
         final_lock_ids = {
@@ -6559,7 +6559,7 @@ Last_path = "~"
         try:
             offset_x = float(payload.get("edge_offset_x", 0))
             offset_y = float(payload.get("edge_offset_y", 0))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return
         self.set_edge_offset(node_id, offset_x, offset_y)
 
@@ -7006,12 +7006,12 @@ Last_path = "~"
         if "int" in type_text:
             try:
                 return int(clean_value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return value
         if "float" in type_text:
             try:
                 return float(clean_value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return value
         return value
 
@@ -7024,11 +7024,11 @@ Last_path = "~"
 
             if pd.isna(value):
                 return None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
         if hasattr(value, "item"):
             try:
                 return value.item()
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 pass
         return value

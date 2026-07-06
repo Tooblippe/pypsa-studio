@@ -12,6 +12,8 @@ from pypsa_studio.types import (
     NetworkDataComponentSetting,
     NetworkDataRow,
     NetworkDataTab,
+    NetworkObjectComponentRow,
+    NetworkObjectConnectionRow,
     OtherTableCell,
     OtherTableRow,
     SettingField,

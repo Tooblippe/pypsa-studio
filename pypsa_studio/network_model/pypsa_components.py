@@ -179,7 +179,7 @@ def _clean_value(value: Any) -> Any:
     if hasattr(value, "item"):
         try:
             return value.item()
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
     if isinstance(value, type):
         return f"{value.__module__}.{value.__qualname__}"

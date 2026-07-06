@@ -202,7 +202,7 @@ def _clean_loaded_value(value: Any) -> Any:
     if hasattr(value, "item"):
         try:
             return value.item()
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
     return value
 
