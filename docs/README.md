@@ -12,7 +12,7 @@
 * PyPSA graphical user interface (GUI)
 * Drag and drop PyPSA network builder
 * Import and export Pypsa networks
-* Set up snapshots and multi-investment periods (needs attentions)
+* Set up snapshots and multi-investment periods (needs attention)
 * Auto routing and layout of network single line diagram
 * Single line diagram region marker
 * Zoom to a marked region in single line diagram
